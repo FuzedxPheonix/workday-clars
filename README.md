@@ -1,6 +1,6 @@
 # Workday Studio Starter Kits
 
-A growing collection of Workday Studio `.car` files built from scratch as learning resources and community contributions. This repo is updated on an ongoing basis as new integrations are built. These are **not production-ready solutions** — they are starter kits to help you understand patterns and accelerate your own builds.
+A growing collection of Workday Studio `.clar` files built from scratch as learning resources and community contributions. This repo is updated on an ongoing basis as new integrations are built. These are **not production-ready solutions** — they are starter kits to help you understand patterns and accelerate your own builds.
 
 ---
 
@@ -8,7 +8,7 @@ A growing collection of Workday Studio `.car` files built from scratch as learni
 
 | File | Description | Last Updated |
 |------|-------------|--------------|
-| `INT_Aladtech.car` | REST API integration between Workday and Aladtec for time-off data | 2025 |
+| `INT_Aladtech.clar` | REST API integration between Workday and Aladtec for time-off data | 2025 |
 
 ---
 
