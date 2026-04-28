@@ -191,6 +191,7 @@ vars['multipart_body'] = baos.toByteArray()
 - Error handling on OAuth, photo retrieval, and ADP upload steps
 
 ### What's NOT Included (still needed for production)
+- associateOID resolution — in some ADP configurations the associateOID matches the Workday Employee ID, in which case this integration works as is. However this is not universal — some orgs have different IDs in each system. Verify with your ADP administrator whether your org uses Workday Employee IDs as the ADP associateOID before deploying. If they differ you will need to add a prior GET /hr/v2/workers call to ADP to resolve the correct associateOID
 - XPath namespace map on Get_Worker_Photos response — required for correct field extraction
 - Handling for workers with no photo on file
 - Retry logic on failed upload
@@ -199,7 +200,9 @@ vars['multipart_body'] = baos.toByteArray()
 ### Launch Parameters
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `Worker` | text | Yes | Employee ID of the worker whose photo will be uploaded |
+| `Worker` | text | Yes | The ADP associateOID of the worker whose photo will be uploaded |
+
+> **Important — associateOID vs Workday Employee ID:** In some ADP configurations the associateOID matches the Workday Employee ID — in which case the same ID works for both the Workday photo retrieval and the ADP payload and no additional mapping is needed. This is not universal however. Verify with your ADP administrator whether your org uses Workday Employee IDs as the ADP associateOID before deploying. If they differ you will need to resolve the correct ADP associateOID before passing it into this integration.
 
 ### Integration System Attributes
 | Attribute Map | Attribute | Description |
