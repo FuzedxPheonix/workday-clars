@@ -10,6 +10,7 @@ A growing collection of Workday Studio `.clar` files built from scratch as learn
 |------|-------------|--------------|
 | `INT_Aladtech.clar` | REST API integration between Workday and Aladtec for time-off data | 2026 |
 | `INT_ADP_Oauth_Example.clar` | ADP Workforce Now OAuth 2.0 integration with worker data retrieval | 2026 |
+| `INT_ADP_Upload_Worker_Image_Example.clar` | ADP worker photo upload via multipart/form-data with Groovy binary handling | 2026 |
 | `INT_EIB_File_Router.clar` | EIB output file renaming by schedule type (monthly/weekly) without cloning | 2026 |
 | `INT_NewHire_VendorSync.clar` | New hire worker data + photo sync to vendor via SFTP — AI-assisted build | 2026 |
 
@@ -113,6 +114,116 @@ Start → Init (attributes + date format) → OAuth Token Request → Extract Be
 ### ADP API Reference
 - Token endpoint: `POST /auth/oauth/v2/token`
 - Workers endpoint: `GET /hr/v2/workers?asOfDate={date}`
+- Full API docs: [ADP Developer Resources](https://developers.adp.com)
+
+---
+
+## ADP Worker Photo Upload Integration
+
+### Overview
+This starter kit uploads a worker's profile photo from Workday to ADP Workforce Now using the ADP photo upload event API. It retrieves the worker photo from Workday as base64, decodes it to raw binary, constructs a multipart/form-data request body in Groovy, and POSTs it to ADP.
+
+### ⚠️ The Hard Part — Groovy Binary Multipart Construction
+This is the most technically complex pattern in this repo and the one most developers will struggle with. Read this section carefully before building anything similar.
+
+**The problem:** Studio's `cc:write` text field treats all content as a string. You cannot put binary image data into a write step — it will corrupt the image. ADP's photo upload API requires `multipart/form-data` with the actual binary image as one of the parts.
+
+**The solution:** Build the entire multipart body as a byte stream in a Groovy eval using `ByteArrayOutputStream`. This gives you full control over every byte — the JSON metadata part, the image binary part, and the MIME boundaries.
+
+**The key Groovy pattern:**
+```groovy
+// Step 1 — Handle Workday variable safely
+// cc:base64-decode outputs an InputStream or MessageContent object, not a raw byte[]
+// Always check and convert safely
+def photoBytes = vars['photo_binary'] instanceof byte[] ?
+                 vars['photo_binary'] :
+                 vars['photo_binary'].getInputStream().getBytes()
+
+// Step 2 — Build multipart body as byte stream
+def boundary = 'WDADPBoundary'
+def baos = new java.io.ByteArrayOutputStream()
+
+// JSON part — text, written as UTF-8 bytes
+def jsonPart = "--${boundary}\r\n" +
+               "Content-Disposition: form-data; name=\"json\"\r\n" +
+               "Content-Type: application/json\r\n\r\n" +
+               "{\"events\":[{\"data\":{\"eventContext\":{\"worker\":{\"associateOID\":\"${props['employee_id']}\"}}}}}]}" +
+               "\r\n"
+baos.write(jsonPart.getBytes('UTF-8'))
+
+// Image part header — text, written as UTF-8 bytes
+def imagePart = "--${boundary}\r\n" +
+                "Content-Disposition: form-data; name=\"datafile\"; filename=\"worker_image.jpg\"\r\n" +
+                "Content-Type: image/jpeg\r\n\r\n"
+baos.write(imagePart.getBytes('UTF-8'))
+
+// Image binary — written directly as raw bytes, no string conversion
+baos.write(photoBytes)
+
+// Closing boundary — text, written as UTF-8 bytes
+baos.write("\r\n--${boundary}--\r\n".getBytes('UTF-8'))
+
+// Store complete byte array
+vars['multipart_body'] = baos.toByteArray()
+```
+
+**Why this matters:** The JSON part and boundary strings are text — safe to write as UTF-8. The image binary is raw bytes — must be written directly without any string conversion. Mixing them in a write step or concatenating as strings will corrupt the image. `ByteArrayOutputStream` is the only clean way to combine text and binary in Studio.
+
+**After the eval — restore and set headers:**
+```xml
+<cc:copy id="RestoreMultipart" input="variable" input-variable="multipart_body"/>
+<cc:set-headers id="SetHeaders" clear-all="true">
+    <cc:remove-headers/>
+    <cc:add-headers>
+        <cc:add-header name="Authorization" value="Bearer @{props['access_token']}"/>
+        <cc:add-header name="Content-Type" value="multipart/form-data; boundary=WDADPBoundary"/>
+    </cc:add-headers>
+</cc:set-headers>
+```
+
+### What's Included
+- OAuth 2.0 token flow with mTLS SSL certificate (same pattern as INT_ADP_Oauth_Example)
+- Worker photo retrieval from Workday via `Get_Worker_Photos` SOAP call
+- `cc:base64-decode` component to convert Workday base64 photo to binary
+- Groovy `ByteArrayOutputStream` multipart body construction
+- `multipart/form-data` POST to ADP `/events/hr/v1/worker.photo.upload`
+- Cloud log audit trail stored at integration completion
+- Error handling on OAuth, photo retrieval, and ADP upload steps
+
+### What's NOT Included (still needed for production)
+- XPath namespace map on Get_Worker_Photos response — required for correct field extraction
+- Handling for workers with no photo on file
+- Retry logic on failed upload
+- Full validation of ADP response codes
+
+### Launch Parameters
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `Worker` | text | Yes | Employee ID of the worker whose photo will be uploaded |
+
+### Integration System Attributes
+| Attribute Map | Attribute | Description |
+|---------------|-----------|-------------|
+| Oauth | `client_id` | ADP API Central client ID |
+| Oauth | `client_secret` | ADP API Central client secret (stored as password) |
+| Oauth | `endpoint` | ADP base API URL (e.g. `https://api.adp.com`) |
+
+### SSL Certificate
+Same requirement as INT_ADP_Oauth_Example — `.pfx` cert stored inside the Studio assembly project and referenced by relative path in `cc:https-properties`.
+
+### Flow Overview
+```
+Start → Init (attributes + employee ID) → OAuth Token Request → Extract Bearer Token
+     → Get Worker Photo (Workday SOAP) → Extract base64 → cc:base64-decode → binary
+     → Groovy ByteArrayOutputStream → multipart body
+     → POST to ADP /events/hr/v1/worker.photo.upload
+     → Log audit → Integration Complete
+```
+
+### ADP API Reference
+- Photo upload endpoint: `POST /events/hr/v1/worker.photo.upload`
+- Content-Type required: `multipart/form-data`
+- Parts: `json` (worker associateOID) + `datafile` (raw binary image)
 - Full API docs: [ADP Developer Resources](https://developers.adp.com)
 
 ---
