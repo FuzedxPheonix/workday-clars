@@ -9,6 +9,7 @@ A growing collection of Workday Studio `.clar` files built from scratch as learn
 | File | Description | Last Updated |
 |------|-------------|--------------|
 | `INT_Aladtech.clar` | REST API integration between Workday and Aladtec for time-off data | 2026 |
+| `INT_Aladtec_TimeOff_Import_Example.clar` | Aladtec time off import into Workday with overnight shift handling and worker hashmap | 2026 |
 | `INT_ADP_Oauth_Example.clar` | ADP Workforce Now OAuth 2.0 integration with worker data retrieval | 2026 |
 | `INT_ADP_Upload_Worker_Image_Example.clar` | ADP worker photo upload via multipart/form-data with Groovy binary handling | 2026 |
 | `INT_EIB_File_Router.clar` | EIB output file renaming by schedule type (monthly/weekly) without cloning | 2026 |
@@ -16,7 +17,7 @@ A growing collection of Workday Studio `.clar` files built from scratch as learn
 
 ---
 
-## Aladtec Time-Off Integration
+## Aladtec Time-Off Integration (Starter Kit)
 
 ### Overview
 This starter kit demonstrates how to connect Workday Studio to the Aladtec REST API to retrieve member and time-off data.
@@ -54,6 +55,87 @@ This starter kit demonstrates how to connect Workday Studio to the Aladtec REST 
 ```
 Start → InitialSetup → OAuth Token Request → Get Members → Split Members → Build HashMap
      → Get Time-Off Records → Split Time-Off Records → [your logic here]
+```
+
+---
+
+## Aladtec Time-Off Import Integration
+
+### Overview
+This integration pulls approved time off records from the Aladtec REST API and submits them into Workday using the `Enter_Time_Off` operation under the `Absence_Management` web service (v46.0). It is designed to be generic and configurable for any organization using Aladtec as their scheduling system and Workday as their HCM.
+
+### What's Included
+- OAuth 2.0 token flow (client credentials grant)
+- Member data retrieval with HashMap storage keyed by `member_id`
+- Configurable custom attribute lookup to resolve Workday Employee ID
+- Time off retrieval with date range launch parameters
+- Overnight shift detection and date handling via `extends_before` / `extends_after` flags
+- Integration map for Aladtec to Workday time off type mapping
+- XSLT transform (`WWSEnterTimeOff.xsl`) for Workday SOAP payload construction
+- Individual `Enter_Time_Off` submission per record via `Absence_Management` v46.0
+- Cloud logging on hashmap creation, worker submission, and integration completion
+- Error handling on OAuth, Members API, and Time Off API steps
+
+### What's NOT Included (still needed for production)
+- Per-record granular logging with `time_off_id` for full traceability
+- Enhanced error routing to isolate and retry individual failed records
+- Complex or conditional time off type mapping beyond 1:1 integration map
+- Overnight merge logic — overnight shifts are submitted as split daily entries per `daily_split_date`. If a single merged Workday entry is required, an aggregator step would need to be added before the XSLT step
+- Active member filtering — hashmap currently loads all members regardless of `is_active` status
+- `pto_hours` submission — field is extracted but not currently passed to Workday. If your absence type requires hours-based entry, the XSLT `Requested` field would need to be populated
+
+### Integration System Attributes
+| Attribute Map | Attribute | Description |
+|---------------|-----------|-------------|
+| Authentication | `grant_type` | OAuth grant type (e.g. `client_credentials`) |
+| Authentication | `client_id` | Aladtec API client ID |
+| Authentication | `client_secret` | Aladtec API client secret (stored as password) |
+| Authentication | `end_point` | Aladtec base API URL |
+| Configuration | `custom_attribute` | Aladtec custom attribute ID storing the Workday Employee ID |
+
+### Integration Map
+| Map Name | External (Aladtec) | Internal (Workday) |
+|----------|-------------------|-------------------|
+| `Time_Off_Types` | `Sick Leave` | `SICK` |
+| `Time_Off_Types` | `Vacation` | `VAC` |
+
+> Configure this map to match your organization's Aladtec time off types to Workday Time Off Type Reference IDs.
+
+### Launch Parameters
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `start_time` | datetime | Start of the time off pull window |
+| `end_time` | datetime | End of the time off pull window |
+
+### Overnight Shift Handling
+Aladtec splits overnight records by `daily_split_date` and provides `extends_before` and `extends_after` flags. This integration handles overnight shifts as follows:
+
+- `extends_before = true` → `Start_Time` is set to `00:00:00` (shift started on a prior day)
+- `extends_after = true` → `End_Time` is capped at `23:59:59` (shift continues into the next day)
+- Both false → actual start/stop times are used as-is
+
+> **Note:** This integration submits one Workday time off entry per `daily_split_date` record. Aladtec handles the date splitting — no additional merge logic is applied. If your organization requires overnight shifts to be submitted as a single merged entry in Workday, additional aggregation logic would be needed before the XSLT step.
+
+### XSLT
+**File:** `WWSEnterTimeOff.xsl`
+Transforms the Aladtec time off record into a Workday `Enter_Time_Off_Request` SOAP payload. Accepts the following parameters from props:
+
+- `member_id` (resolved from hashmap to Workday Employee ID)
+- `daily_split_date`
+- `time_off_type` (mapped via integration map)
+- `start_datetime`
+- `stop_datetime`
+- `extends_before`
+- `extends_after`
+
+### Flow Overview
+```
+Start → Init (attributes + params) → OAuth Token Request → Extract Bearer Token
+     → Get Members → JSON to XML → Split Members → Build Worker HashMap
+     → Get Time-Off Records → JSON to XML → Split by daily_split_date
+     → Split by time_record → Resolve Worker ID → XSLT Transform
+     → Enter_Time_Off (Workday SOAP) → Log Submission
+     → Integration Complete
 ```
 
 ---
