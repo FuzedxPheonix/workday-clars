@@ -10,6 +10,7 @@ A growing collection of Workday Studio `.clar` files built from scratch as learn
 |------|-------------|--------------|
 | `INT_Aladtech.clar` | REST API integration between Workday and Aladtec for time-off data | 2026 |
 | `INT_Aladtec_TimeOff_Import_Example.clar` | Aladtec time off import into Workday with overnight shift handling and worker hashmap | 2026 |
+| `INT_Aladtec_Import_Accrual_Banks_Example.clar` | Pulls Workday time off balances and syncs them to Aladtec accrual banks | 2026 |
 | `INT_ADP_Oauth_Example.clar` | ADP Workforce Now OAuth 2.0 integration with worker data retrieval | 2026 |
 | `INT_ADP_Upload_Worker_Image_Example.clar` | ADP worker photo upload via multipart/form-data with Groovy binary handling | 2026 |
 | `INT_EIB_File_Router.clar` | EIB output file renaming by schedule type (monthly/weekly) without cloning | 2026 |
@@ -137,6 +138,78 @@ Start → Init (attributes + params) → OAuth Token Request → Extract Bearer 
      → Enter_Time_Off (Workday SOAP) → Log Submission
      → Integration Complete
 ```
+
+---
+
+## Aladtec Accrual Bank Balance Sync
+
+### Overview
+This integration pulls time off plan balances from Workday for each active member and syncs them to Aladtec's accrual bank balances via a PUT to the Aladtec REST API. It is designed to keep Aladtec's accrual banks current with what Workday holds as the system of record for time off balances.
+
+### What's Included
+- OAuth 2.0 token flow (client credentials grant)
+- Member data retrieval with HashMap storage keyed by `member_id`
+- Configurable custom attribute lookup to resolve Workday Employee ID
+- `Get_Time_Off_Plan_Balances` SOAP call per worker via `Absence_Management` v46.0
+- Balance HashMap storage keyed by `member_id` for aggregation
+- Aggregator pattern to collect all balances into a single JSON payload
+- XML to JSON conversion for Aladtec PUT request body
+- PUT to Aladtec `/accrual-banks/balances` endpoint
+- Response logging per member with hours and accrual bank ID
+- Cloud log audit trail stored at integration completion
+- Error handling on OAuth, Members API, and Workday WWS steps
+
+### What's NOT Included (still needed for production)
+- Active member filtering — hashmap currently loads all members regardless of `is_active` status
+- Multi-position balance handling — if a worker has multiple positions each with their own balance, the integration takes the first balance returned. Summing or selecting by position would need additional logic
+- Multiple time off plan support — currently configured for one plan per run via the `time_off_plan` attribute. Multiple plans would require looping or separate integration runs
+- Full error notifications and alerting per record
+- Retry logic on failed PUT to Aladtec
+
+### Integration System Attributes
+| Attribute Map | Attribute | Description |
+|---------------|-----------|-------------|
+| Authentication | `grant_type` | OAuth grant type (e.g. `client_credentials`) |
+| Authentication | `client_id` | Aladtec API client ID |
+| Authentication | `client_secret` | Aladtec API client secret (stored as password) |
+| Authentication | `end_point` | Aladtec base API URL |
+| Configuration | `custom_attribute` | Aladtec custom attribute ID storing the Workday Employee ID |
+| Configuration | `time_off_plan` | Workday Time Off Plan ID to pull balances from |
+| Configuration | `aladtech_accrual_bank` | Aladtec accrual bank ID to sync balances to |
+
+### Aladtec PUT Payload
+Each member entry in the payload sent to Aladtec:
+```json
+[
+  {
+    "member_id": 18,
+    "accrual_bank_id": 1,
+    "hours": 40.5
+  },
+  {
+    "member_id": 24,
+    "accrual_bank_id": 1,
+    "hours": 32.0
+  }
+]
+```
+
+### Flow Overview
+```
+Start → Init (attributes + params) → OAuth Token Request → Extract Bearer Token
+     → Get Members → JSON to XML (stored) → Split Members → Build Worker HashMap
+     → Split Members again → Resolve Worker ID → Get_Time_Off_Plan_Balances (Workday SOAP)
+     → Store Balance in HashMap per member
+     → Split Members (third pass) → Resolve Balance from HashMap
+     → Write entry XML → Aggregator → XML to JSON
+     → PUT to Aladtec /accrual-banks/balances
+     → Log response per member → Store audit log
+     → Integration Complete
+```
+
+### Known Bugs Fixed
+- `accrual_balances_api` http-out was referencing `members_endpoint` instead of `accrual_banks_endpoint` — corrected
+- `aladtech_members_balance_hashmap.get()` was called with two arguments — corrected to single argument
 
 ---
 
