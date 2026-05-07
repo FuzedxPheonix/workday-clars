@@ -15,6 +15,7 @@ A growing collection of Workday Studio `.clar` files built from scratch as learn
 | `INT_ADP_Upload_Worker_Image_Example.clar` | ADP worker photo upload via multipart/form-data with Groovy binary handling | 2026 |
 | `INT_EIB_File_Router.clar` | EIB output file renaming by schedule type (monthly/weekly) without cloning | 2026 |
 | `INT_NewHire_VendorSync.clar` | New hire worker data + photo sync to vendor via SFTP — AI-assisted build | 2026 |
+|`INT_UKG_Import_Abscense_Accrual_Deductions.clar` | UKG File Format to Add/Deduct Accruals Example| 2026 |
 
 ---
 
@@ -543,6 +544,75 @@ Two XSLT files are referenced in the assembly and must be created and placed in 
 | `Get_Worker_Photos_Response.xml` | 3 days | Intermediate API response storage |
 | `{employeeid}_dd_mm_yyyy.csv` | 30 days | Final CSV output |
 | `audit_{employeeid}_dd_mm_yyyy.csv` | 30 days | Audit log row |
+
+---
+## UKG Accrual and Deduction Import Integration
+
+### Overview
+This integration retrieves a UKG accrual export file and loads absence accrual and deduction entries into Workday using `Put_Absence_Input` under the `Absence_Management` web service (v46.1). The UKG file provides both hours accrued and hours taken per employee per period — each row generates two Workday calls, one for the accrual (positive hours) and one for the deduction (negative hours).
+
+### What's Included
+- Document Retrieval Service via `GetEventDocuments` and Document Iterator pattern
+- CSV to XML conversion for UKG flat file processing
+- Per-row field extraction via XPath on named header columns
+- `Put_Absence_Input` SOAP call for accrued hours (positive)
+- `Put_Absence_Input` SOAP call for taken hours (negative) — skipped if amount taken is zero
+- WID capture on both WWS responses for audit trail
+- Detailed cloud log per record with all field values
+- Error handling on both accrual and deduction WWS steps
+- Audit log stored at integration completion
+
+### What's NOT Included (still needed for production)
+- AccrualCode to Workday Absence Component ID mapping — currently passes AccrualCode directly, an integration map may be needed depending on how codes are defined in Workday
+- PersonNumber to Employee ID validation — assumes PersonNumber matches Workday Employee ID directly
+- Duplicate detection — no check for previously loaded batches
+- Retry logic on failed WWS calls per record
+- Full error notifications and alerting
+
+### ⚠️ Key Assumptions
+> These assumptions must be validated before deploying to any environment.
+
+**1. CSV file includes a header row**
+This integration uses `cc:csv-to-xml` which maps column names directly from the header row to XML element names. If the UKG file does not include a header row the XPath references will not resolve and the integration will fail silently. Verify the file format with your UKG administrator before deploying.
+
+**2. UKG PersonNumber = Workday Employee ID**
+The integration passes `PersonNumber` directly as the `Employee_ID` type in the `Worker_Reference`. This only works if your org uses the same identifier in both systems. If PersonNumber and Workday Employee ID differ a lookup or transformation step will be needed before the WWS call.
+
+**3. Workday `Put_Absence_Input` accepts negative hours**
+The taken deduction is submitted as a negative `Hours` value to reduce the accrual balance. Workday does accept negative values on `Put_Absence_Input` — this is the supported pattern for recording deductions via this web service. Validate this behavior in your sandbox tenant before running in production as accrual plan configuration can affect how negative inputs are processed.
+
+### Integration System
+| Component | Name | Description |
+|-----------|------|-------------|
+| Retrieval Service | `INT_UKG_Retrieval_Example` | Document retrieval service configured on the Business Process to pull the UKG accrual file |
+
+### UKG File Layout
+| # | Field | Type | Description |
+|---|-------|------|-------------|
+| 1 | PersonNumber | String(15) | Maps to Workday Employee ID |
+| 2 | AccrualCode | String | Maps to Workday Absence Component ID |
+| 3 | Date | Date (yyyy-MM-dd) | Period end date used as Reference Date |
+| 4 | StartingBalance | Decimal | For reference only — not submitted to Workday |
+| 5 | AmountAccrued | Decimal | Submitted as positive hours |
+| 6 | AmountTaken | Decimal | Submitted as negative hours |
+| 7 | EndingBalance | Decimal | For reference only — not submitted to Workday |
+
+### Workday WWS Calls Per Row
+Two `Put_Absence_Input` calls are made per record:
+
+- **Accrued** — `Batch_ID: UKG_ACCRUED_{date}` — positive hours from `AmountAccrued` — fires when `AmountAccrued > 0`
+- **Taken** — `Batch_ID: UKG_TAKEN_{date}` — negative hours from `AmountTaken` — fires when `AmountTaken > 0`
+
+### Flow Overview
+```
+Start → Init
+     → GetEventDocuments → Document Iterator → per file:
+     → CSV to XML → Split by record row → per row:
+     → Extract fields → Log record details
+     → Put_Absence_Input (Accrued) → Log WID
+     → Put_Absence_Input (Taken negative) → Log WID
+     → Store audit log → Integration Complete
+```
 
 ---
 
