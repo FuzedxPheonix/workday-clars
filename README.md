@@ -16,6 +16,8 @@ A growing collection of Workday Studio `.clar` files built from scratch as learn
 | `INT_EIB_File_Router.clar` | EIB output file renaming by schedule type (monthly/weekly) without cloning | 2026 |
 | `INT_NewHire_VendorSync.clar` | New hire worker data + photo sync to vendor via SFTP — AI-assisted build | 2026 |
 |`INT_UKG_Import_Abscense_Accrual_Deductions.clar` | UKG File Format to Add/Deduct Accruals Example| 2026 |
+|`INT_File_Watcher_Example.clar` | Light Weight Starterkit for a integration Watcher| 2026 |
+
 
 ---
 
@@ -612,6 +614,54 @@ Start → Init
      → Put_Absence_Input (Accrued) → Log WID
      → Put_Absence_Input (Taken negative) → Log WID
      → Store audit log → Integration Complete
+```
+
+---
+
+## File Watcher Integration
+
+### Overview
+This integration acts as a lightweight file watcher. It runs on a schedule, checks an SFTP location via a configured retrieval service, and conditionally launches a downstream integration only if files are present. If no files are found it logs a message and exits cleanly. This pattern is useful when you have an integration that should only run when new data arrives rather than on a fixed schedule regardless of file availability.
+
+### What's Included
+- Document Retrieval Service via `GetEventDocuments` and `da.size()` file count check
+- Route strategy to branch on file found vs no file found
+- `Launch_Integration_Event` SOAP call to trigger the downstream integration when files are present
+- Configurable downstream integration system ID via attribute map — no hardcoding
+- Clean no-op exit with INFO log when no files are found
+- Global error handler for unexpected failures
+
+### What's NOT Included (still needed for production)
+- File name logging — current implementation counts files but does not log which files were found
+- Multiple downstream integration support — currently launches one integration system per run
+- Launch parameters — the downstream integration is launched with no parameters. If the target integration requires launch parameters additional `Integration_Launch_Parameter_Data` elements would need to be added to the request
+- Delete after retrieval — files are not automatically deleted from the SFTP after detection. Configure this on the retrieval service BP step if needed
+- Retry logic on failed launch
+
+### Integration System Attributes
+| Attribute Map | Attribute | Description |
+|---------------|-----------|-------------|
+| Configuration | `IntegrationSystem` | The Integration System ID of the downstream integration to launch when files are found |
+
+### Integration System Components
+| Component | Name | Description |
+|-----------|------|-------------|
+| Retrieval Service | `FileWatcherRetrieval` | Document retrieval service configured on the Business Process pointing to the SFTP location to watch |
+
+### How It Works
+On each scheduled run the integration checks whether the retrieval service returned any files using `da.size()`. If one or more files are present it fires a `Launch_Integration_Event` request targeting the configured downstream integration. If no files are present it logs `No Files Found in sFTP` and completes without launching anything.
+
+> **Note:** The downstream integration is launched with no launch parameters. This pattern assumes the target integration retrieves its own file via its own retrieval service. If the downstream integration requires parameters or needs the file passed directly, the `Launch_Integration_Event_Request` would need to include `Integration_Launch_Parameter_Data` or `Launch_Input_Document_Data` elements.
+
+### Flow Overview
+```
+Start → Init (get IntegrationSystem attribute)
+     → GetEventDocuments → Check da.size()
+     → Route: Files Found → Write Launch_Integration_Event_Request
+                         → Launch_Integration_Event (Integrations v46.1)
+                         → Log "Integration Launched"
+     → Route: No File    → Log "No Files Found in sFTP"
+     → Integration Complete
 ```
 
 ---
