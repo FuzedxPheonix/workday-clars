@@ -17,6 +17,7 @@ A growing collection of Workday Studio `.clar` files built from scratch as learn
 | `INT_NewHire_VendorSync.clar` | New hire worker data + photo sync to vendor via SFTP — AI-assisted build | 2026 |
 |`INT_UKG_Import_Abscense_Accrual_Deductions.clar` | UKG File Format to Add/Deduct Accruals Example| 2026 |
 |`INT_File_Watcher_Example.clar` | Light Weight Starterkit for a integration Watcher| 2026 |
+|`INT_Fixed_Width_File_Inbound_Example.clar` | An Example of Fixed Width File to Process One Time Payment| 2026 |
 
 
 ---
@@ -664,6 +665,100 @@ Start → Init (get IntegrationSystem attribute)
      → Integration Complete
 ```
 
+---
+## Inbound Fixed Width File — One Time Payment Integration
+
+### Overview
+This integration retrieves a fixed width flat file from an SFTP location, parses each record using a TextSchema definition, validates required fields, and submits individual one time payment requests into Workday via the `Request_One-Time_Payment` operation under the `Compensation` web service (v46.1). It is designed as a generic starter kit for any organization loading one time payments from a fixed width file into Workday.
+
+### What's Included
+- Document Retrieval Service via `GetEventDocuments` and Document Iterator pattern
+- TextSchema parsing of fixed width flat file via `cc:textschema` component
+- Per-record field extraction via XPath with `.trim()` to strip padding
+- Employee ID validation — skips and logs error if blank
+- XSLT transform (`OneTimePaymentWWS.xsl`) for Workday SOAP payload construction
+- Date formatting from `YYYYMMDD` to `YYYY-MM-DD` via XSLT substring
+- `Request_One-Time_Payment` SOAP call per record via `Compensation` v46.1
+- WID and exception capture on WWS response
+- Cloud log per record with event WID and employee reference
+- Error log per failed record — integration continues on failure
+- Audit log stored at integration completion
+- Global error handler for unexpected failures
+
+### What's NOT Included (still needed for production)
+- Amount validation — zero or negative amounts are not currently skipped. Add a `cc:validate-exp` check on `props['amount']` before the XSLT step
+- Exception classification routing — response exceptions are logged but not routed differently based on Warning vs Error classification
+- PayCode to Workday One Time Payment Plan ID mapping — currently passes PayCode directly. An integration map may be needed if codes differ between systems
+- Multi-file support — Document Iterator handles multiple files but behavior with multiple files in the same run should be validated
+- Retry logic on failed WWS calls
+
+### ⚠️ Key Assumptions
+> These assumptions must be validated before deploying to any environment.
+
+**1. Fixed width file includes a newline character at the end of every row including the last row**
+The TextSchema uses `ts:endTag="&#10;"` to detect record boundaries. If any row including the last is missing a trailing newline the record will land in the `Unparsed` element and not be processed.
+
+**2. EmployeeID in the file matches Workday Employee ID**
+The integration passes `EmployeeID` directly as `Employee_ID` type in the `Employee_Reference`. If your source system uses a different identifier a lookup or transformation step will be needed.
+
+**3. PayCode maps directly to a Workday One Time Payment Plan ID**
+No mapping is applied. The value in the file is submitted as-is to `One_Time_Payment_Plan_Reference`. Validate that your PayCode values match configured plan IDs in Workday before deploying.
+
+**4. EffectiveDate is in YYYYMMDD format**
+The XSLT handles the conversion to `YYYY-MM-DD` using substring. If your file uses a different date format the XSLT will need to be updated.
+
+### Integration System Components
+| Component | Name | Description |
+|-----------|------|-------------|
+| Retrieval Service | `RS_Fixed_Width_File` | Document retrieval service configured on the Business Process pointing to the SFTP location |
+
+### Fixed Width File Layout
+| # | Field | Length | Positions | Description |
+|---|-------|--------|-----------|-------------|
+| 1 | EmployeeID | 10 | 1-10 | Workday Employee ID |
+| 2 | PayCode | 10 | 11-20 | One Time Payment Plan ID |
+| 3 | EffectiveDate | 8 | 21-28 | Payment effective date YYYYMMDD |
+| 4 | Amount | 10 | 29-38 | Payment amount decimal |
+| 5 | CurrencyCode | 6 | 39-44 | ISO currency code e.g. USD |
+| 6 | Comment | 30 | 45-74 | Payment description or note |
+
+Total record length: 74 characters per row
+
+### TextSchema
+**File:** `textExample.xsd`
+Parses the fixed width file using `ts:fixedLength` per field and `ts:endTag="&#10;"` as the record delimiter. Fields are read sequentially in the order defined. All fields are `xsd:string` with `minOccurs="0"` to prevent parse failure on blank fields. Padding is stripped via `.trim()` in the eval step after parsing.
+
+> **Note:** The correct TextSchema attributes for fixed width parsing in Workday Studio are `ts:fixedLength` and `ts:align`. The `ts:endTag="&#10;"` XML entity must be used instead of the literal `\n` string for the record delimiter to be recognized correctly by the Cape Clear parser.
+
+### XSLT
+**File:** `OneTimePaymentWWS.xsl`
+Transforms extracted field values into a `Request_One-Time_Payment_Request` SOAP payload. Handles date formatting from `YYYYMMDD` to `YYYY-MM-DD` using XSLT 1.0 `substring` and `concat`. Accepts the following parameters from props:
+
+- `employee_id`
+- `pay_code`
+- `effective_date`
+- `amount`
+- `currency_code`
+- `comment`
+
+### Validation
+| Field | Rule | Behavior on Failure |
+|-------|------|-------------------|
+| EmployeeID | Must not be blank | Skip record, log ERROR, continue |
+| Amount | Not validated — add for production | N/A |
+
+### Flow Overview
+```
+Start → Init
+     → GetEventDocuments → Document Iterator → per file:
+     → TextSchema parse (text to XML)
+     → Split by ns0:File/ns0:Record → per record:
+     → Extract fields → trim padding
+     → Validate EmployeeID not blank
+     → XSLT transform → Request_One-Time_Payment (Compensation v46.1)
+     → Capture WID + exceptions → Log result
+     → Store audit log → Integration Complete
+```
 ---
 
 ## How to Import a .clar File into Workday Studio
