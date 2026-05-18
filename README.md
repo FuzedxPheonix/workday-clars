@@ -782,7 +782,11 @@ Start → Init
 ## Contributing
 
 Have a Studio starter kit of your own? Feel free to open a PR. The goal is to build a library of clean, well-documented patterns for the Workday community.
+---
+## Supporting Me
+If you want to support me and my repo! You can do so now by buying me a cup of coffee! You will be supporting my cafe meil! 
 
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow)](https://buy.stripe.com/cNibJ25yk97aaN9fUi5c400)
 ---
 
 ## Disclaimer
