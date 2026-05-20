@@ -18,6 +18,7 @@ A growing collection of Workday Studio `.clar` files built from scratch as learn
 |`INT_UKG_Import_Abscense_Accrual_Deductions.clar` | UKG File Format to Add/Deduct Accruals Example| 2026 |
 |`INT_File_Watcher_Example.clar` | Light Weight Starterkit for a integration Watcher| 2026 |
 |`INT_Fixed_Width_File_Inbound_Example.clar` | An Example of Fixed Width File to Process One Time Payment| 2026 |
+|`INT_Zendesk_API_Ticket.clar` | A Starterkit for Zendesk API to Create a Ticket for laptop request| 2026 |
 
 
 ---
@@ -759,6 +760,78 @@ Start → Init
      → Capture WID + exceptions → Log result
      → Store audit log → Integration Complete
 ```
+---
+## Zendesk New Hire Equipment Request Integration
+
+### Overview
+This starter kit demonstrates how to connect Workday Studio to the Zendesk REST API to automatically create an IT equipment request ticket when a new hire is processed in Workday. It pulls worker details from Workday via `Get_Workers` and submits a formatted ticket to Zendesk via a single authenticated POST — no OAuth token exchange required.
+
+### What's Included
+- Launch parameter to accept Worker WID from the Hire Business Process
+- `Get_Workers` SOAP call via `Human_Resources` v46.0
+- Worker field extraction via eval XPath — name, email, hire date, job title, location, manager
+- Basic auth header construction from Integration System attributes
+- JSON ticket body built directly in Studio write step — no XSLT required
+- POST to Zendesk `/api/v2/tickets`
+- JSON to XML conversion on Zendesk response
+- Ticket ID, URL, and status capture via eval XPath
+- Cloud log per step — Get Worker success, Zendesk ticket created, errors
+- Error handling on both Get Workers and Zendesk API steps
+- Audit log stored at integration completion
+
+### What's NOT Included (still needed for production)
+- Duplicate check — if the BP fires twice for the same hire two tickets will be created
+- Work email fallback — if no work email is provisioned at hire time the requester email will be blank
+- Zendesk user creation — if the requester email doesn't exist in Zendesk the ticket creation may fail depending on your Zendesk account settings
+- Group or assignee routing — ticket is created unassigned
+- Retry logic on Zendesk API failure
+
+### ⚠️ Key Assumptions
+> These assumptions must be validated before deploying to any environment.
+
+**1. Work email is provisioned at hire time**
+The integration passes the worker's work email as the Zendesk requester. If email provisioning happens after the hire event fires the requester field will be blank and ticket creation may fail.
+
+**2. EmployeeWID is passed by the Business Process**
+Configure the Hire BP step to pass the Worker WID as the `EmployeeWID` launch parameter before deploying.
+
+**3. Zendesk allows ticket creation with new requesters**
+If your Zendesk account is configured to restrict ticket creation to existing users only the POST will fail for first-time requesters. Validate this in your Zendesk sandbox first.
+
+### Integration System Attributes
+| Attribute Map | Attribute | Description |
+|---------------|-----------|-------------|
+| Zendesk_API_Config | `zendesk.email` | Admin email used for Zendesk Basic auth |
+| Zendesk_API_Config | `zendesk.api.token` | API token generated in Zendesk Admin Center (stored as password) |
+| Zendesk_API_Config | `zendesk.subdomain` | Your Zendesk subdomain e.g. `mycompany` |
+
+### Launch Parameters
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `EmployeeWID` | Text | Worker WID passed in from the Hire Business Process |
+
+### Zendesk Auth
+Zendesk uses Basic auth — no OAuth token exchange required. Generate your API token once in Zendesk Admin Center → Apps and Integrations → APIs → Zendesk API. Store it as a password attribute and the integration constructs the auth header directly on the POST request.
+
+### Ticket Created
+| Field | Value |
+|-------|-------|
+| Subject | New Hire Equipment Request — {worker full name} |
+| Type | Task |
+| Priority | Normal |
+| Tags | new_hire, equipment_request |
+| Body | Worker name, job title, hire date, office location, manager |
+
+### Flow Overview
+```
+Start (EmployeeWID) → Init (attributes + params)
+     → Get_Workers (Human_Resources v46.0) → Extract worker fields via XPath
+     → Build auth header → Write JSON ticket body
+     → POST to Zendesk /api/v2/tickets
+     → JSON to XML → Extract ticket ID + URL + status
+     → Cloud log → Store audit log → Integration Complete
+```
+
 ---
 
 ## How to Import a .clar File into Workday Studio
