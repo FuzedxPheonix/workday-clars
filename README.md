@@ -19,6 +19,7 @@ A growing collection of Workday Studio `.clar` files built from scratch as learn
 |`INT_File_Watcher_Example.clar` | Light Weight Starterkit for a integration Watcher| 2026 |
 |`INT_Fixed_Width_File_Inbound_Example.clar` | An Example of Fixed Width File to Process One Time Payment| 2026 |
 |`INT_Zendesk_API_Ticket.clar` | A Starterkit for Zendesk API to Create a Ticket for laptop request| 2026 |
+|`INT_Onboarding_Task_AI_RPT.clar` | A Starterkit Example on Using Claude AI to Generate Onboarding RPT| 2026 |
 
 
 ---
@@ -831,6 +832,101 @@ Start (EmployeeWID) → Init (attributes + params)
      → JSON to XML → Extract ticket ID + URL + status
      → Cloud log → Store audit log → Integration Complete
 ```
+
+---
+## AI-Powered New Hire Onboarding Report
+
+### Overview
+This integration pulls new hire worker data from Workday via `Get_Workers` and sends it to the Claude AI API (Anthropic) to generate a plain English onboarding status report in HTML format. The report identifies missing fields, gaps, and key worker details for HR teams to action. The prompt is fully configurable via launch parameter — no code changes needed to change the report format or focus.
+
+### What's Included
+- Date range launch parameters to control the worker pull window
+- Configurable AI prompt via launch parameter with a sensible default
+- `Get_Workers` SOAP call via `Human_Resources` v46.1 with transaction log data
+- Worker response stored as a variable and passed directly to Claude
+- POST to Anthropic `/v1/messages` endpoint with model, max tokens, and API key from attributes
+- JSON to XML conversion on Claude response
+- AI report text extracted via XPath and stored as `OnboardingRPT.html`
+- Cloud log on WWS response and Claude response for debugging
+- Error handling on both Get Workers and Claude API steps
+- Audit log stored at integration completion
+
+### What's NOT Included (still needed for production)
+- Worker filtering by hire date — `Transaction_Log_Criteria` returns all workers updated in the window, not just new hires. Add a hire date filter in an eval after the WWS response or use `Effective_From/Through` instead of `Updated_From/Through`
+- Pagination — if more than 100 workers are returned the response will be paginated and only the first page goes to Claude. Add a `Response_Filter` with `Count` and loop logic for large orgs
+- SFTP or email delivery — report is stored in Document Repository only. Add a delivery step for HR to receive it automatically
+- Prompt injection protection — the prompt launch parameter is passed directly to Claude. Validate or sanitize input in production
+- HTML sanitization — Claude response is written directly to file without validation
+- Retry logic on Claude API failure
+
+### ⚠️ Key Assumptions
+> These assumptions must be validated before deploying to any environment.
+
+**1. Worker data volume fits within Claude's context window**
+The raw Get_Workers XML response is sent directly to Claude. For large worker populations this will exceed the model's context limit and the API call will fail. Test with your expected new hire volume before deploying.
+
+**2. Date parameters are in YYYY-MM-DD format**
+The integration passes `from_date` and `to_date` directly into the WWS request. Workday's date launch parameter type should handle formatting but validate in sandbox first.
+
+**3. Anthropic API key has sufficient quota**
+The integration makes one API call per run. Ensure your Anthropic account has sufficient credits and the API key has not expired before scheduling.
+
+### Integration System Attributes
+
+| Attribute Map | Attribute | Type | Description |
+|---------------|-----------|------|-------------|
+| Anthropic_Config | `API_Key` | Password | Anthropic API key from console.anthropic.com |
+| Anthropic_Config | `Endpoint` | Text | Anthropic base URL — `https://api.anthropic.com/v1` |
+| Anthropic_Config | `Claude_Model` | Text | Model ID e.g. `claude-sonnet-4-20250514` |
+| Anthropic_Config | `Max_Tokens` | Number | Max tokens for Claude response e.g. `1024` |
+
+### Launch Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `from_date` | Date | Yes | Start of the worker pull window |
+| `to_date` | Date | Yes | End of the worker pull window |
+| `prompt` | Text | No | AI prompt sent to Claude. Defaults to standard onboarding gap report prompt |
+
+### Default Prompt
+```
+You are an HR onboarding assistant. Review the following new hire data from Workday
+and generate a concise onboarding status report. For each worker identify: full name,
+hire date, job title, office location, manager, and work email. Flag any missing or
+incomplete fields as gaps that HR should follow up on. Group workers by start date.
+Write in plain English suitable for an HR team. Keep the report concise and actionable.
+```
+
+### Output
+
+| File | Format | Destination |
+|------|--------|-------------|
+| `OnboardingRPT.html` | HTML | Workday Document Repository |
+| `Log.html` | HTML | Workday Document Repository — cloud log audit trail |
+
+### Flow Overview
+```
+Start → Init (launch params + attributes)
+     → Get_Workers (Human_Resources v46.1) → Store response as variable
+     → Build Claude JSON payload → Set auth headers
+     → POST to Anthropic /v1/messages
+     → JSON to XML → Extract report text
+     → Write HTML → Store OnboardingRPT.html
+     → Store audit log → Integration Complete
+```
+
+### Error Handling
+
+| Scenario | Severity | Behaviour |
+|----------|----------|-----------|
+| Get Workers WWS fails | ERROR | Cloud log, integration stops |
+| Claude API POST fails | ERROR | Cloud log, integration stops |
+| Unexpected error | CRITICAL | Global handler, PutIntegrationMessage |
+| Success | INFO | Two INFO messages — WWS success and Claude report created |
+
+### 🤖 A Note on AI-Generated Content
+The report content is generated by Claude AI based on the raw Workday XML response. The quality of the report depends on the data completeness in Workday and the prompt provided. Always review AI-generated reports before distributing to stakeholders. The prompt launch parameter makes it easy to refine output without touching the integration code.
+
 
 ---
 
