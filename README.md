@@ -21,7 +21,7 @@ A growing collection of Workday Studio `.clar` files built from scratch as learn
 |`INT_Zendesk_API_Ticket.clar` | A Starterkit for Zendesk API to Create a Ticket for laptop request| 2026 |
 |`INT_Onboarding_Task_AI_RPT.clar` | A Starterkit Example on Using Claude AI to Generate Onboarding RPT| 2026 |
 | `INT_PII_Claude_Get_Workers.clar` | AI-powered worker PII anonymization and Claude analysis with HashMap masking and leave status extraction | 2026 |
-
+| `INT_SupOrg_Data_AI_Review.clar` | AI-powered Claude analysis to Confirm if Data is Ready for AI Consumption| 2026 |
 ---
 
 ## Aladtec Time-Off Integration (Starter Kit)
