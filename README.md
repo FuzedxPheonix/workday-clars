@@ -1044,7 +1044,137 @@ Start → Init (launch params + attributes)
 Real Worker IDs never leave Workday Studio. The HashMap stores the `WORKER_N` to real Worker ID mapping in memory for the duration of the integration run only. Claude receives only anonymized keys and leave status. If your use case requires Claude to reference specific workers in its response add a reverse lookup step after parsing the Claude response to re-identify workers from the HashMap before storing or delivering the report.
 
 ---
+## AI-Powered Supervisory Org Data Governance Audit
 
+### Overview
+Inspired by the "first things first" principle — clean your data before you buy the robot. This integration pulls supervisory organization assignment restrictions and active worker data from Workday, sends both datasets to Claude AI, and returns a plain English HTML audit report identifying structural issues, misconfigurations, and orphaned orgs before you feed your tenant data into any AI tool or agent.
+
+This is not an AI report on your workers. It is an AI report on whether your Workday data is ready for AI.
+
+### What's Included
+- Configurable AI prompt via launch parameter with a sensible default
+- `Get_Organization_Assignment_Restrictions` SOAP call via `Human_Resources` v46.1 — pulls all sup org assignment defaults and allowed values
+- `Get_Workers` SOAP call via `Human_Resources` v46.1 — pulls active workers with supervisory org and management chain data only
+- Both responses stored as variables and passed together to Claude for cross reference analysis
+- POST to Anthropic `/v1/messages` endpoint with model, max tokens, and API key from attributes
+- JSON to XML conversion on Claude response
+- AI audit report extracted and stored as `SupOrgAudit.html`
+- Cloud log on both WWS responses and Claude response for debugging
+- Global error handler for unexpected failures
+- Per-step error handling on both WWS calls and Claude API call
+- Audit log stored at integration completion
+
+### What's NOT Included (still needed for production)
+- Pagination — both WWS calls are set to a count of 999. If your tenant has more than 999 supervisory orgs or more than 999 workers the response will be paginated and only the first page goes to Claude. Add loop logic for large orgs
+- PII anonymization — worker and org references are sent to Claude as-is. If your compliance requirements prohibit sending identifiers to an external AI API add an anonymization layer before the Claude call — see `INT_PII_Claude_Get_Workers.clar` for the HashMap anonymization pattern
+- Prompt injection protection — the prompt launch parameter is passed directly to Claude. Validate or sanitize in production
+- SFTP or email delivery — report is stored in Document Repository only. Add a delivery step for governance teams to receive it automatically
+- Retry logic on Claude API failure
+- Active manager validation — management chain data is included but Claude's ability to detect terminated managers depends on the data returned in the management chain. Validate this behavior in your sandbox
+
+### ⚠️ Key Assumptions
+> These assumptions must be validated before deploying to any environment.
+
+**1. Worker and org data volume fits within Claude's context window**
+Both the Get_Workers and Get_Organization_Assignment_Restrictions responses are sent together to Claude. For large tenants this combined payload will exceed the model's context limit and the API call will fail. Test with your expected tenant size before deploying.
+
+**2. Get_Organization_Assignment_Restrictions returns data**
+This WWS only returns data for supervisory orgs that have assignment restrictions configured. Orgs with zero restrictions configured will not appear in the response at all. Claude will identify missing orgs by cross referencing against the worker data but if worker data is also missing for those orgs they may not be flagged. This is a known gap — document it for your stakeholders.
+
+**3. Anthropic API key has sufficient quota**
+The integration makes one API call per run combining both datasets. Ensure your Anthropic account has sufficient credits and the API key has not expired before scheduling.
+
+**4. Sup org data reflects current tenant state**
+No date filtering is applied. Both calls pull current active state. If your tenant has pending org changes in flight the report may reflect data mid-transition.
+
+### Integration System Attributes
+| Attribute Map | Attribute | Type | Description |
+|---------------|-----------|------|-------------|
+| Anthropic_Config | `API_Key` | Password | Anthropic API key from console.anthropic.com |
+| Anthropic_Config | `Endpoint` | Text | Anthropic base URL — `https://api.anthropic.com/v1` |
+| Anthropic_Config | `Claude_Model` | Text | Model ID e.g. `claude-sonnet-4-20250514` |
+| Anthropic_Config | `Max_Tokens` | Text | Max tokens for Claude response e.g. `2048` |
+
+### Launch Parameters
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `prompt` | Text | No | AI prompt sent to Claude. Defaults to the standard sup org governance audit prompt |
+
+### Default Prompt
+```
+You are a Workday data governance auditor. You will receive two XML datasets:
+
+1. Supervisory Organization Assignment Restrictions data
+2. Worker data including their supervisory org assignments
+
+Your job is to audit the supervisory org structure and return a clear HTML report.
+
+For each issue found, categorize it as one of:
+- CRITICAL: Immediate action required
+- WARNING: Should be reviewed
+- INFO: Worth noting
+
+Audit Rules - Flag the following:
+
+Org Assignment Restrictions:
+- Sup org has no org assignment restrictions configured at all
+- Sup org has no default cost center set
+- Sup org has no default company set
+- Sup org has allowed values defined but no default set
+
+Worker Cross Reference:
+- Sup org has active workers but no org assignment restrictions configured
+- Sup org exists but has zero active workers assigned — possible orphaned org
+- Sup org manager is terminated or inactive
+- Multiple sup orgs with identical or near identical names — possible duplicates
+
+Report Format:
+- Start with an executive summary — total orgs audited, total issues found by severity
+- Group issues by CRITICAL, WARNING, INFO
+- For each issue state the org reference, the problem, and a recommended action
+- End with a data readiness score out of 10 for AI readiness
+
+Return only valid HTML. No explanation outside the HTML. No markdown.
+```
+
+### WWS Calls
+| Call | Web Service | Version | Purpose |
+|------|-------------|---------|---------|
+| `Get_Organization_Assignment_Restrictions` | Human_Resources | v46.1 | Pulls sup org assignment defaults and allowed values |
+| `Get_Workers` | Human_Resources | v46.1 | Pulls active workers with sup org and management chain data |
+
+### Output
+| File | Format | Destination |
+|------|--------|-------------|
+| `SupOrgAudit.html` | HTML | Workday Document Repository |
+| `log.html` | HTML | Workday Document Repository — cloud log audit trail |
+
+### Flow Overview
+```
+Start → Init (launch params + attributes)
+     → Get_Workers (Human_Resources v46.1) → Store as workerResponse variable
+     → Get_Organization_Assignment_Restrictions (Human_Resources v46.1) → Store as SupOrgResponse variable
+     → Build Claude JSON payload with both responses
+     → Set auth headers → POST to Anthropic /v1/messages
+     → JSON to XML → Extract audit report text
+     → Write HTML → Store SupOrgAudit.html
+     → Store audit log → Integration Complete
+```
+
+### Error Handling
+| Scenario | Severity | Behaviour |
+|----------|----------|-----------|
+| Get Workers WWS fails | ERROR | Cloud log, integration stops |
+| Get Sup Org WWS fails | ERROR | Cloud log, integration stops |
+| Claude API POST fails | ERROR | Cloud log, integration stops |
+| Unexpected error | CRITICAL | Global handler, PutIntegrationMessage |
+| Success | INFO | Three INFO messages — Workers success, Sup Org success, integration complete |
+
+### 🤖 A Note on AI Governance Auditing
+This integration is built on the principle that AI is only as smart as the data you feed it. Before running any AI agent, chatbot, or analytics layer on your Workday tenant, you need to know whether your supervisory org structure is clean. This kit uses Claude to do that reading for you — surfacing what's misconfigured, what's orphaned, and what needs attention before you go further. The data readiness score gives leadership a single number to understand where the tenant stands today and what needs to happen before AI can be trusted on it.
+
+
+---
 ## How to Import a .clar File into Workday Studio
 
 1. Open Workday Studio
