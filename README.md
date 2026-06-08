@@ -22,6 +22,8 @@ A growing collection of Workday Studio `.clar` files built from scratch as learn
 |`INT_Onboarding_Task_AI_RPT.clar` | A Starterkit Example on Using Claude AI to Generate Onboarding RPT| 2026 |
 | `INT_PII_Claude_Get_Workers.clar` | AI-powered worker PII anonymization and Claude analysis with HashMap masking and leave status extraction | 2026 |
 | `INT_SupOrg_Data_AI_Review.clar` | AI-powered Claude analysis to Confirm if Data is Ready for AI Consumption| 2026 |
+| `INT_AI_Audit_Integrations.clar` | AI-powered Claude analysis to Review Integration API calls Audit| 2026 |
+
 ---
 
 ## Aladtec Time-Off Integration (Starter Kit)
@@ -1173,7 +1175,154 @@ Start → Init (launch params + attributes)
 ### 🤖 A Note on AI Governance Auditing
 This integration is built on the principle that AI is only as smart as the data you feed it. Before running any AI agent, chatbot, or analytics layer on your Workday tenant, you need to know whether your supervisory org structure is clean. This kit uses Claude to do that reading for you — surfacing what's misconfigured, what's orphaned, and what needs attention before you go further. The data readiness score gives leadership a single number to understand where the tenant stands today and what needs to happen before AI can be trusted on it.
 
+---
+## AI-Powered Workday Integration Audit + Flex Credits Risk Report
 
+### Overview
+Inspired by Michael Domingo's piece in The Department of First Things First — *"Workday's AI Meter Is Running. The Grace Period Ends January 31."* — this integration audits your Workday integration landscape and uses Claude AI to assess Flex Credits consumption risk before the meter starts.
+
+It pulls two datasets from Workday: all integration systems configured in the tenant, and execution event history for a specified date window. Both are sent to Claude, which returns a plain English HTML report identifying high-risk integrations, dormant systems, projected credit burn, and recommended actions before January 31, 2027.
+
+This is not a replacement for the Platform Consumption Console. It is a Studio-native starting point for teams who haven't turned on the PCC yet or want a broader picture of their integration landscape before modeling credit exposure.
+
+### What's Included
+- Date range launch parameters to control the event history window
+- Optional worker count launch parameter for per-worker credit burn modeling
+- Configurable AI prompt via launch parameter with a sensible default
+- `Get_Integration_Events` SOAP call via `Integrations` v46.1 — pulls execution history, record counts, and status for the date window
+- `Get_Integration_Systems` SOAP call via `Integrations` v46.1 — pulls all integration systems in the tenant including name, type, and template
+- Both responses stored as variables and passed together to Claude
+- POST to Anthropic `/v1/messages` endpoint with model, max tokens, and API key from attributes
+- JSON to XML conversion on Claude response
+- AI audit report extracted and stored as `AuditRPT.html`
+- Cloud log on both WWS responses and Claude response for debugging
+- Global error handler for unexpected failures
+- Per-step error handling on both WWS calls and Claude API call
+- Audit log stored at integration completion
+
+### What's NOT Included (still needed for production)
+- Multi-instance integration system filtering — the launch parameter scaffold is in place but the WWS request does not currently filter by specific integration systems. If you want to scope the audit to a subset of integrations add `Integration_System_Reference` blocks to the `Get_Integration_Events` request criteria
+- Pagination — both WWS calls are set to 999. If your tenant has more than 999 integration systems or more than 999 events in the date window only the first page is processed. Add loop logic for large tenants or wide date windows
+- Exact API call counts — Workday does not expose raw API call counts via WWS. `Total_Records` is used as a proxy. Verify actual consumption in the Platform Consumption Console
+- Rate card accuracy — the rate card baked into the default prompt is based on the Workday v262 Flex Credits card as published in May 2026. Workday may update rates — validate before using for financial modeling
+- Prompt injection protection — the prompt launch parameter is passed directly to Claude. Validate or sanitize in production
+- SFTP or email delivery — report is stored in Document Repository only
+- Retry logic on Claude API failure
+
+### ⚠️ Key Assumptions
+> These assumptions must be validated before deploying to any environment.
+
+**1. Integration event and system data volume fits within Claude's context window**
+Both responses are sent together to Claude. Tenants with large integration landscapes and wide date windows will produce payloads that exceed the model's context limit. Start with a narrow date window — 7 to 30 days — and expand once you know the payload size.
+
+**2. Total_Records is a reasonable proxy for API consumption**
+Exact API call counts are not available via WWS. Claude uses record counts to estimate API volume. This is an approximation — not a billing-accurate figure. Always validate in the PCC before making financial decisions.
+
+**3. The grace period scope is correctly understood**
+The grace period covers Application API overages only through January 31, 2027. It does not cover agent credit burn. The default prompt communicates this but confirm with your Workday account team before relying on it.
+
+**4. Anthropic API key has sufficient quota**
+The integration makes one API call per run combining both datasets. Ensure your Anthropic account has sufficient credits and the API key has not expired before scheduling.
+
+**5. Worker count is accurate**
+The worker count launch parameter is used by Claude to model per-worker credit burn. An inaccurate count will produce inaccurate projections. Use your actual active headcount.
+
+### Integration System Attributes
+| Attribute Map | Attribute | Type | Description |
+|---------------|-----------|------|-------------|
+| Anthropic_Config | `API_Key` | Password | Anthropic API key from console.anthropic.com |
+| Anthropic_Config | `Endpoint` | Text | Anthropic base URL — `https://api.anthropic.com/v1` |
+| Anthropic_Config | `Claude_Model` | Text | Model ID e.g. `claude-sonnet-4-20250514` |
+| Anthropic_Config | `Max_Tokens` | Number | Max tokens for Claude response e.g. `2048` |
+
+### Launch Parameters
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `from_date` | Date | Yes | Start of the integration event window |
+| `to_date` | Date | Yes | End of the integration event window |
+| `worker_count` | Text | No | Approximate active headcount for per-worker credit burn modeling |
+| `prompt` | Text | No | AI prompt sent to Claude. Defaults to standard Flex Credits audit prompt |
+
+### Default Prompt
+```
+You are a Workday Flex Credits consumption auditor. You will receive two datasets:
+
+1. Integration Systems — all integrations configured in the tenant including name, type, and owner
+2. Integration Events — execution history including run dates, record counts, and status for a specified date window
+
+Your job is to analyze this data and return a clear HTML audit report.
+
+Context:
+- The grace period for API overages runs through January 31 2027 — agent credit burn is NOT covered by the grace period
+- Exact API call counts are not available. Use Total_Records as a proxy for API consumption volume
+- Verify exact figures in the Workday Platform Consumption Console
+
+Flex Credits Rate Card Reference:
+- Self-service action: 1 credit per event
+- Payroll Data Monitoring: 0.5 credits per worker per run — HIGH RISK at scale
+- Talent Rediscovery: 750 credits per event — CRITICAL RISK
+- Core Platform API: 60 credits per 10,000 calls over baseline
+- Complimentary allotment scales by org size — model conservatively
+
+Audit Rules:
+- Flag integrations with high record counts as potential high API consumers
+- Flag integrations that ran more than daily — highest volume API drivers
+- Flag integrations with high failure rates — failed runs still consume credits
+- Flag integrations with zero events in the window — dormant or abandoned
+- For each integration estimate monthly run frequency based on the event window
+- Project annual record volume at current cadence
+- Assign a risk rating: LOW / MEDIUM / HIGH / CRITICAL
+- Flag any integration processing more than 10000 records per run as HIGH minimum
+
+Report Format:
+- Executive summary — total integrations audited, total events in window, estimated total record volume, overall credit risk rating
+- Integration breakdown table — name, type, runs in window, avg records per run, projected annual records, risk rating
+- Top 5 highest risk integrations with detailed analysis and recommended action
+- Dormant integrations section — integrations with zero events, flag for review or decommission
+- Grace period advisory — remind reader what is and is not covered
+- Recommended next steps before January 31 2027
+
+Return only valid HTML. No explanation outside the HTML. No markdown. No backticks.
+```
+
+### WWS Calls
+| Call | Web Service | Version | Purpose |
+|------|-------------|---------|---------|
+| `Get_Integration_Events` | Integrations | v46.1 | Pulls execution history, record counts, and status for the date window |
+| `Get_Integration_Systems` | Integrations | v46.1 | Pulls all integration systems in the tenant including name and template type |
+
+### Output
+| File | Format | Destination |
+|------|--------|-------------|
+| `AuditRPT.html` | HTML | Workday Document Repository |
+| `Log.html` | HTML | Workday Document Repository — cloud log audit trail |
+
+### Flow Overview
+```
+Start → Init (launch params + attributes)
+     → Get_Integration_Events (Integrations v46.1) → Store as intEventsWWS variable
+     → Get_Integration_Systems (Integrations v46.1) → Store as IntSystemWWS variable
+     → Build Claude JSON payload with both responses
+     → Set auth headers → POST to Anthropic /v1/messages
+     → JSON to XML → Extract audit report text
+     → Write HTML → Store OnboardingRPT.html
+     → Store audit log → Integration Complete
+```
+
+### Error Handling
+| Scenario | Severity | Behaviour |
+|----------|----------|-----------|
+| Get Integration Events WWS fails | ERROR | Cloud log, integration stops |
+| Get Integration Systems WWS fails | ERROR | Cloud log, integration stops |
+| Claude API POST fails | ERROR | Cloud log, integration stops |
+| Unexpected error | CRITICAL | Global handler, PutIntegrationMessage |
+| Success | INFO | Three INFO messages — events success, systems success, integration complete |
+
+### 📊 A Note on Rate Card Accuracy
+The Flex Credits rate card used in the default prompt is based on the Workday v262 Platform Entitlement Policy as covered by Michael Domingo in The Department of First Things First (June 2026). Workday marks design-phase skill rates as subject to change. Do not use this report as a substitute for reviewing your actual agreement or consulting your Workday account team. The goal of this kit is directional awareness — not billing-accurate forecasting.
+
+### 🤖 A Note on AI-Generated Credit Projections
+Claude's projections are based on the data provided and the rate card baked into the prompt. Without exact API call counts — which are only available in the Platform Consumption Console — all figures are estimates. Use this report to identify which integrations deserve closer attention, then validate those specific integrations in the PCC before making any financial or architectural decisions.
 ---
 ## How to Import a .clar File into Workday Studio
 
