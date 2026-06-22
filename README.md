@@ -23,6 +23,7 @@ A growing collection of Workday Studio `.clar` files built from scratch as learn
 | `INT_PII_Claude_Get_Workers.clar` | AI-powered worker PII anonymization and Claude analysis with HashMap masking and leave status extraction | 2026 |
 | `INT_SupOrg_Data_AI_Review.clar` | AI-powered Claude analysis to Confirm if Data is Ready for AI Consumption| 2026 |
 | `INT_AI_Audit_Integrations.clar` | AI-powered Claude analysis to Review Integration API calls Audit| 2026 |
+|`INT_AI_Yes_No_Compliance_Check.clar` | AI-powered preferred name compliance validator using Claude — loops per worker, sends policy and executive list to Claude, returns YES/NO decision per worker in an aggregated HTML report | 2026 |
 
 ---
 
@@ -1323,6 +1324,136 @@ The Flex Credits rate card used in the default prompt is based on the Workday v2
 
 ### 🤖 A Note on AI-Generated Credit Projections
 Claude's projections are based on the data provided and the rate card baked into the prompt. Without exact API call counts — which are only available in the Platform Consumption Console — all figures are estimates. Use this report to identify which integrations deserve closer attention, then validate those specific integrations in the PCC before making any financial or architectural decisions.
+---
+## AI-Powered Yes/No Preferred Name Compliance Validator
+
+### Overview
+Inspired by the Stormloop session at Workday DevCon 2026 — *"Yes or No: The Surprisingly Simple AI Path to Quicker ROI"* — this integration pulls workers with preferred names set in Workday, sends each name to Claude AI along with your company policy and executive list, and receives a strict YES or NO compliance decision with a one sentence reason. Results are aggregated into a single HTML report for HR to review and action.
+
+The pattern is intentionally generic. While this starter kit uses preferred name validation as the use case, the YES/NO prompt structure can be adapted to validate any text field against any written policy — justification text, comment moderation, role descriptions, and more.
+
+### What's Included
+- Date range launch parameters to control the worker pull window
+- `policy` launch parameter — paste your preferred name policy text at runtime, no code changes needed
+- `executive_names` launch parameter — paste a list of executive names Claude should flag if impersonated
+- `Get_Workers` SOAP call via `Human_Resources` v46.1 with personal information including preferred name data
+- Splitter pattern — loops per worker, one Claude API call per worker
+- Per-worker eval extracting legal name, preferred name, and Worker ID via XPath
+- Skip logic via `cc:validate-exp` — workers with no preferred name set are skipped and logged, integration continues
+- Prompt built dynamically in Groovy per worker — policy, executive list, and preferred name interpolated at runtime
+- HTTP POST to Anthropic `/v1/messages` per worker with `max_tokens` set to 100 for fast, cheap responses
+- JSON to XML conversion on Claude response per worker
+- Per-worker HTML fragment written with Worker ID, legal name, preferred name, and Claude decision
+- Aggregator collects all fragments into a single HTML report
+- Report stored as `RPT.html` in Workday Document Repository
+- Cloud log on WWS response and per-worker Claude response for debugging
+- Global error handler for unexpected failures
+- Per-step error handling on WWS call and Claude API call
+
+### What's NOT Included (still needed for production)
+- Worker filtering by preferred name diff — `Get_Workers` with transaction log criteria returns workers updated in the window, not specifically workers who changed their preferred name. Depending on your date window this may return workers with no relevant preferred name change. Narrow the date window or add additional filtering post-splitter
+- Rate limiting — one Claude API call fires per worker with a preferred name. For large populations or wide date windows this can result in hundreds of API calls per run. Consider batching multiple workers per prompt if cost or rate limits are a concern
+- Pagination — `Get_Workers` is not paginated. If more than 999 workers are returned in the window only the first page is processed
+- Action routing — the report flags YES/NO but takes no automated action. Wiring a notification or task creation for flagged NO decisions would need additional steps after the aggregator
+- Prompt injection protection — policy and executive name launch parameters are passed directly into the prompt. Validate input before deploying to production
+
+### ⚠️ Key Assumptions
+> These assumptions must be validated before deploying to any environment.
+
+**1. Preferred name is set and differs from legal name**
+`Preferred_Name_Data` only exists in the response if the worker has explicitly set a preferred name in Workday. Workers without one are skipped via the validate-exp step. This is expected behavior — only workers with preferred names need validation.
+
+**2. Date window returns meaningful data**
+The transaction log criteria filters workers updated in the window, not specifically preferred name changes. A wide window may return many workers with no recent preferred name activity. Start with a narrow window — 7 to 14 days — and adjust based on volume.
+
+**3. Anthropic API key has sufficient quota**
+One API call fires per worker with a preferred name in the date window. Ensure your Anthropic account has sufficient credits before scheduling.
+
+**4. Policy text fits within Claude's context**
+The policy text is passed directly into the prompt per worker. Very long policy documents may push the prompt toward context limits. Keep policy text concise and focused on the key rules.
+
+### Integration System Attributes
+| Attribute Map | Attribute | Type | Description |
+|---------------|-----------|------|-------------|
+| Anthropic_Config | `API_Key` | Password | Anthropic API key from console.anthropic.com |
+| Anthropic_Config | `Endpoint` | Text | Anthropic base URL — `https://api.anthropic.com/v1` |
+| Anthropic_Config | `Claude_Model` | Text | Model ID e.g. `claude-sonnet-4-20250514` |
+| Anthropic_Config | `Max_Tokens` | Number | Set to 100 — Claude only needs YES/NO + one sentence |
+
+### Launch Parameters
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `from_date` | Date | Yes | Start of the worker update window |
+| `to_date` | Date | Yes | End of the worker update window |
+| `policy` | Text | Yes | Your preferred name policy text — pasted at runtime |
+| `executive_names` | Text | Yes | Comma separated list of executive names Claude should flag |
+
+### Prompt Built Per Worker
+The prompt is constructed dynamically in Groovy per worker before each Claude call:
+
+```
+You are an HR policy validator. Review this preferred name
+against the company policy below.
+
+Policy: [policy launch param value]
+Executive list: [executive_names launch param value]
+Submitted preferred name: [worker preferred name from Workday]
+
+Respond ONLY in this exact format:
+DECISION: YES or NO
+REASON: one sentence explanation
+
+No other text. No exceptions.
+```
+
+### Example Claude Response
+```
+DECISION: NO
+REASON: The submitted preferred name matches an executive name on the restricted list.
+```
+
+```
+DECISION: YES
+REASON: The preferred name appears appropriate and does not violate any policy criteria.
+```
+
+### Output
+| File | Format | Destination |
+|------|--------|-------------|
+| `RPT.html` | HTML | Workday Document Repository — one entry per worker reviewed |
+| `Log.html` | HTML | Workday Document Repository — cloud log audit trail |
+
+### Flow Overview
+```
+Start → Init (launch params + attributes)
+     → Get_Workers (Human_Resources v46.1) → Cloud log response
+     → Splitter by bsvc:Worker → Per worker:
+     → Extract legal name, preferred name, Worker ID
+     → Skip if no preferred name (log and continue)
+     → Build prompt dynamically with policy + exec list + preferred name
+     → POST to Anthropic /v1/messages (max_tokens: 100)
+     → JSON to XML → Extract DECISION + REASON
+     → Write HTML fragment with worker context and Claude decision
+     → Aggregator → Collect all fragments into single HTML body
+     → Store RPT.html
+     → Store Log.html → Integration Complete
+```
+
+### Error Handling
+| Scenario | Severity | Behaviour |
+|----------|----------|-----------|
+| Get Workers WWS fails | ERROR | Cloud log, integration stops |
+| Worker has no preferred name | ERROR | Cloud log per worker, splitter continues to next worker |
+| Claude API POST fails | ERROR | Cloud log per worker, splitter continues to next worker |
+| Unexpected error | CRITICAL | Global handler, PutIntegrationMessage |
+| Success | INFO | Two INFO messages — WWS success and integration complete |
+
+### 🤖 A Note on the YES/NO Pattern
+The strict YES/NO format is intentional. Asking Claude for a binary decision plus a single sentence reason forces deterministic, auditable output that HR can act on without interpretation. The `max_tokens: 100` cap prevents Claude from going off-format. If Claude returns anything other than the expected format in testing, tighten the prompt with an explicit example of the exact output structure.
+
+### 🎯 Adapting This Pattern
+The YES/NO validator pattern is not limited to preferred names. The same structure works for any field where a written policy defines what is and isn't acceptable. To adapt it, change the `policy` launch parameter text and the XPath used to extract the field being validated. The rest of the flow — prompt construction, Claude call, aggregation, report — stays the same.
+
 ---
 ## How to Import a .clar File into Workday Studio
 
