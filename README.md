@@ -3,6 +3,11 @@
 A growing collection of Workday Studio `.clar` files built from scratch as learning resources and community contributions. This repo is updated on an ongoing basis as new integrations are built. These are **not production-ready solutions** — they are starter kits to help you understand patterns and accelerate your own builds.
 
 ---
+## Supporting Me
+If you want to support me and my repo! You can do so now by buying me a cup of coffee! You will be supporting my cafe meil! 
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow)](https://buy.stripe.com/cNibJ25yk97aaN9fUi5c400)
+---
 
 ## Files
 
@@ -1476,11 +1481,6 @@ The YES/NO validator pattern is not limited to preferred names. The same structu
 ## Contributing
 
 Have a Studio starter kit of your own? Feel free to open a PR. The goal is to build a library of clean, well-documented patterns for the Workday community.
----
-## Supporting Me
-If you want to support me and my repo! You can do so now by buying me a cup of coffee! You will be supporting my cafe meil! 
-
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow)](https://buy.stripe.com/cNibJ25yk97aaN9fUi5c400)
 ---
 
 ## Disclaimer
