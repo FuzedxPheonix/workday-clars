@@ -29,6 +29,7 @@ If you want to support me and my repo! You can do so now by buying me a cup of c
 | `INT_SupOrg_Data_AI_Review.clar` | AI-powered Claude analysis to Confirm if Data is Ready for AI Consumption| 2026 |
 | `INT_AI_Audit_Integrations.clar` | AI-powered Claude analysis to Review Integration API calls Audit| 2026 |
 |`INT_AI_Yes_No_Compliance_Check.clar` | AI-powered preferred name compliance validator using Claude — loops per worker, sends policy and executive list to Claude, returns YES/NO decision per worker in an aggregated HTML report | 2026 |
+|`INT_AI_Benefits_Enrollment_Analysis.clar` | AI-powered benefits enrollment analysis using Claude — loops per worker, extracts plan enrollment and cost data from Workday, returns aggregated HTML report with per-worker cost breakdown and plan distribution | 2026 |
 
 ---
 
@@ -1477,7 +1478,141 @@ The YES/NO validator pattern is not limited to preferred names. The same structu
 - These files are original work shared freely for the Workday community
 
 ---
+## AI-Powered Benefits Enrollment Analysis
 
+### Overview
+This integration pulls active worker benefit enrollment data from Workday, sends each worker's enrollment details to Claude AI, and aggregates the responses into a single HTML report. HR teams get a plain English analysis of plan distribution, coverage tiers, and cost breakdown — without having to manually run and cross-reference multiple Workday reports.
+
+The data is already in Workday. This integration just does the reading.
+
+### What's Included
+- Date range launch parameters to control the worker pull window
+- `Get_Workers` SOAP call via `Human_Resources` v46.1 with benefit enrollments enabled
+- Splitter pattern — loops per worker, one Claude API call per worker
+- Per-worker eval extracting Worker ID, plan name, coverage type, coverage begin date, employee cost, and employer cost via XPath
+- Worker enrollment data written to a variable and passed to Claude per worker
+- HTTP POST to Anthropic `/v1/messages` per worker
+- JSON to XML conversion on Claude response per worker
+- Per-worker HTML fragment written with Claude's analysis
+- Aggregator collects all fragments into a single HTML report
+- Report stored as `RPT.html` in Workday Document Repository
+- Cloud log on WWS response and per-worker Claude response for debugging
+- Global error handler for unexpected failures
+- Per-step error handling on WWS call and Claude API call
+- Audit log stored at integration completion
+
+### What's NOT Included (still needed for production)
+- Workers with no benefit enrollments — if a worker has no enrollment data the XPath fields will return empty and Claude will receive blank data. Add a validate-exp check before the Claude call to skip workers with no plan name
+- Multiple plan handling per worker — the XPath extracts the first plan only. Workers enrolled in medical, dental, and vision will only have their first plan sent to Claude. To send all plans you would need to loop through `Benefit_Plan_Summary_Data` nodes and build a multi-plan summary string before calling Claude
+- Pagination — set to 999 workers. For larger populations add loop logic
+- Rate card validation — if `Employee_Cost` and `Employer_Cost` are not loaded against benefit plans in Workday the cost fields will return empty. Validate that premium rates are configured before deploying
+- Prompt injection protection — the prompt launch parameter is passed directly to Claude. Validate or sanitize in production
+- SFTP or email delivery — report is stored in Document Repository only
+
+### ⚠️ Key Assumptions
+> These assumptions must be validated before deploying to any environment.
+
+**1. Benefit premium rates are loaded in Workday**
+The integration pulls `Employee_Cost` and `Employer_Cost` directly from the benefit enrollment response. If your tenant does not have premium rates configured against benefit plans these fields will be empty and Claude cannot calculate costs. Validate in sandbox first.
+
+**2. Date window returns workers with benefit enrollment activity**
+The transaction log criteria filters workers updated in the date window. Workers whose enrollment has not changed recently may not appear. For a full population snapshot consider removing the date filter and pulling all active workers.
+
+**3. Worker has one active enrollment per run**
+The XPath extracts the first `Benefit_Plan_Summary_Data` node per worker. Workers with multiple active plans will only have their first plan analyzed. See What's NOT Included for the multi-plan pattern.
+
+**4. Anthropic API key has sufficient quota**
+One API call fires per worker. For large populations this can result in hundreds of calls per run. Ensure your account has sufficient credits before scheduling.
+
+**5. Max tokens set appropriately**
+`Max_Tokens` is pulled from the integration attribute. Set this to at least 500 per worker to give Claude enough room to return a structured HTML response.
+
+### Integration System Attributes
+| Attribute Map | Attribute | Type | Description |
+|---------------|-----------|------|-------------|
+| Anthropic_Config | `API_Key` | Password | Anthropic API key from console.anthropic.com |
+| Anthropic_Config | `Endpoint` | Text | Anthropic base URL — `https://api.anthropic.com/v1` |
+| Anthropic_Config | `Claude_Model` | Text | Model ID e.g. `claude-sonnet-4-20250514` |
+| Anthropic_Config | `Max_Tokens` | Number | Max tokens for Claude response per worker e.g. `500` |
+
+### Launch Parameters
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `from_date` | Date | Yes | Start of the worker enrollment update window |
+| `to_date` | Date | Yes | End of the worker enrollment update window |
+| `prompt` | Text | No | AI prompt sent to Claude per worker. Defaults to benefits enrollment analysis prompt |
+
+### Default Prompt
+```
+You are a Workday Benefits Enrollment Analyst. Analyze the following benefit 
+enrollment data for one worker and return a structured HTML summary.
+
+Return the following in valid HTML only — no markdown, no explanation outside the HTML:
+
+<div class="worker-record">
+  <h3>Worker ID: [worker_id]</h3>
+  <table>
+    <tr>
+      <th>Plan Name</th>
+      <th>Coverage Tier</th>
+      <th>Coverage Start</th>
+      <th>Employee Cost</th>
+      <th>Employer Cost</th>
+    </tr>
+    [one row per plan enrolled]
+  </table>
+  <p><strong>Total Monthly Employee Cost:</strong> [sum]</p>
+  <p><strong>Total Monthly Employer Cost:</strong> [sum]</p>
+  <p><strong>Total Monthly Combined Cost:</strong> [total]</p>
+</div>
+
+Return only valid HTML. No markdown. No backticks. No explanation.
+```
+
+### Data Extracted Per Worker
+| Field | XPath |
+|-------|-------|
+| Worker ID | `bsvc:Worker_Data/bsvc:Worker_ID` |
+| Plan Name | `bsvc:Worker_Data/bsvc:Benefit_Enrollment_Data/bsvc:Benefit_Plan_Summary_Data/bsvc:Benefit_Plan_Reference/@bsvc:Descriptor` |
+| Coverage Type | `bsvc:Worker_Data/bsvc:Benefit_Enrollment_Data/bsvc:Benefit_Plan_Summary_Data/bsvc:Coverage_Type_Reference/@bsvc:Descriptor` |
+| Coverage Begin Date | `bsvc:Worker_Data/bsvc:Benefit_Enrollment_Data/bsvc:Benefit_Plan_Summary_Data/bsvc:Coverage_Begin_Date` |
+| Employee Cost | `bsvc:Worker_Data/bsvc:Benefit_Enrollment_Data/bsvc:Benefit_Plan_Summary_Data/bsvc:Employee_Cost` |
+| Employer Cost | `bsvc:Worker_Data/bsvc:Benefit_Enrollment_Data/bsvc:Benefit_Plan_Summary_Data/bsvc:Employer_Cost` |
+
+### Output
+| File | Format | Destination |
+|------|--------|-------------|
+| `RPT.html` | HTML | Workday Document Repository — aggregated enrollment analysis |
+| `Log.html` | HTML | Workday Document Repository — cloud log audit trail |
+
+### Flow Overview
+```
+Start → Init (launch params + attributes)
+     → Get_Workers (Human_Resources v46.1) — benefit enrollments enabled
+     → Cloud log WWS response
+     → Splitter by bsvc:Worker → Per worker:
+     → Extract Worker ID, plan name, coverage type, dates, costs
+     → Write enrollment summary to workerData variable
+     → Build Claude JSON payload
+     → POST to Anthropic /v1/messages
+     → JSON to XML → Extract HTML response
+     → Write worker HTML fragment
+     → Aggregator → Collect all fragments into single HTML body
+     → Store RPT.html
+     → Store Log.html → Integration Complete
+```
+
+### Error Handling
+| Scenario | Severity | Behaviour |
+|----------|----------|-----------|
+| Get Workers WWS fails | ERROR | Cloud log, integration stops |
+| Claude API POST fails per worker | ERROR | Cloud log per worker, splitter continues |
+| Unexpected error | CRITICAL | Global handler, PutIntegrationMessage |
+| Success | INFO | Two INFO messages — WWS success and integration complete |
+
+### 🤖 A Note on Cost Accuracy
+Claude calculates costs based on the `Employee_Cost` and `Employer_Cost` values returned directly from Workday. If premium rates are loaded correctly against benefit plans in Workday these numbers reflect actual configured rates. If rates are not loaded Claude will flag missing data rather than estimate. Always validate cost outputs against your benefits configuration before distributing the report to stakeholders.
+---
 ## Contributing
 
 Have a Studio starter kit of your own? Feel free to open a PR. The goal is to build a library of clean, well-documented patterns for the Workday community.
