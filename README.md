@@ -30,6 +30,7 @@ If you want to support me and my repo! You can do so now by buying me a cup of c
 | `INT_AI_Audit_Integrations.clar` | AI-powered Claude analysis to Review Integration API calls Audit| 2026 |
 |`INT_AI_Yes_No_Compliance_Check.clar` | AI-powered preferred name compliance validator using Claude — loops per worker, sends policy and executive list to Claude, returns YES/NO decision per worker in an aggregated HTML report | 2026 |
 |`INT_AI_Benefits_Enrollment_Analysis.clar` | AI-powered benefits enrollment analysis using Claude — loops per worker, extracts plan enrollment and cost data from Workday, returns aggregated HTML report with per-worker cost breakdown and plan distribution | 2026 |
+| `INT_Validate_Mode_Demo.clar` | Demonstrates toggling Workday's validate-only submission mode via a launch parameter, using a static Submit_Accounting_Journal_Request test payload | 2026 |
 
 ---
 
@@ -1612,6 +1613,72 @@ Start → Init (launch params + attributes)
 
 ### 🤖 A Note on Cost Accuracy
 Claude calculates costs based on the `Employee_Cost` and `Employer_Cost` values returned directly from Workday. If premium rates are loaded correctly against benefit plans in Workday these numbers reflect actual configured rates. If rates are not loaded Claude will flag missing data rather than estimate. Always validate cost outputs against your benefits configuration before distributing the report to stakeholders.
+---
+## Validate-Only Mode Demo
+
+### Overview
+This starter kit demonstrates a pattern for toggling Workday's validate-only submission mode at runtime via a boolean launch parameter, rather than hardcoding it. It fires a `Submit_Accounting_Journal_Request` against `Financial_Management` v46.1 with a static test payload, and flips validate-only on or off per run based on the `ValidateMode` launch parameter — useful as a reference pattern for testing submission-type WWS operations without committing real transactions every time you run the integration.
+
+This kit is intentionally minimal. The journal payload is a static test body with placeholder values — it does not pull real accounting data from anywhere. The point of this kit is the validate-only toggle pattern, not a working accounting journal integration.
+
+### What's Included
+- Boolean launch parameter (`ValidateMode`) with a default of `false`
+- Eval step storing the launch parameter value into a prop for reuse downstream
+- `cc:set-headers` step dynamically setting an `X-Validate-Only` header from the stored prop before the WWS call
+- Static `Submit_Accounting_Journal_Request` SOAP payload via `cc:write`
+- `cc:workday-out-soap` call to `Financial_Management` v46.1
+- Response captured to a variable, logged via `cc:cloud-log`, and stored as `Log.html`
+- Global error handler (`cc:send-error` → local-out) for unexpected failures
+- INFO completion message via `PutIntegrationMessage`
+
+### What's NOT Included (still needed for production)
+- Real accounting journal data — the payload is fully static with `"string"` placeholder values in every field. There is no WWS `Get` call, file input, or any data source feeding the journal. Building a real journal submission would require replacing the static `cc:write` block with a dynamic transform
+- Company, currency, ledger type, and account references — all populated with placeholder strings and must be resolved from real reference data before this could submit anything meaningful
+- Journal entry line looping — only a single hardcoded line is included. Multi-line journals would need a splitter/aggregator pattern feeding the `Journal_Entry_Line_Replacement_Data` block
+- Response parsing — the WWS response is logged as raw HTML but not parsed for validation errors/warnings, which is the whole point of running in validate-only mode. You'd want to XPath the response for `Validation_Error` nodes and surface them clearly
+- Per-step error handling beyond the global handler — currently one catch-all rather than granular handling on the WWS step specifically
+
+### ⚠️ Key Assumptions
+> As with all kits in this repo, these are starter-kit patterns, not verified production behavior.
+
+**1. The `X-Validate-Only` header is assumed to trigger validate-only behavior on `cc:workday-out-soap`**
+This kit sets a custom header (`X-Validate-Only`) via `cc:set-headers` immediately before the `cc:write` and `cc:workday-out-soap` steps, driven by the `ValidateMode` launch parameter. Whether Workday Studio's `workday-out-soap` component reads and honors this specific header name — versus requiring a native Studio property/checkbox on the component itself — is the core pattern being demonstrated here, not a confirmed behavior.
+
+**2. `Submit_Accounting_Journal_Request` does not expose `Validate_Only` in the request body itself**
+Unlike `Add_Only`, which is a visible attribute on the request element, `Validate_Only` is not part of the documented body schema for this operation. This kit's approach of controlling it via header is one possible mechanism for achieving that toggle.
+
+**3. Static test payload will fail on a real tenant**
+Every reference field in the payload (`Company_Reference`, `Currency_Reference`, `Ledger_Type_Reference`, `Journal_Source_Reference`, `Ledger_Account_Reference`) contains the literal string `"string"`. Running this as-is will return reference resolution errors, not a clean validation pass — replace with real reference IDs from your tenant to see meaningful validate-only output.
+
+### Integration System
+| Component | Name | Description |
+|-----------|------|--------------|
+| Integration System | `INT_Valdiate_Mode_Demo` | Note: this name contains a typo in the source assembly (`Valdiate` vs `Validate`) |
+
+### Launch Parameters
+| Parameter | Type | Default | Description |
+|-----------|------|---------|--------------|
+| `ValidateMode` | boolean | `false` | When `true`, sets `X-Validate-Only` header before the WWS submission |
+
+### Flow Overview
+```
+Start (ValidateMode param) → Eval: store validate_mode prop
+     → Set-Headers: X-Validate-Only from prop
+     → Write static Submit_Accounting_Journal_Request payload
+     → Submit_Accounting_Journal_Request (Financial_Management v46.1)
+     → Copy response to variable → Cloud log response (HTML)
+     → Store Log.html → Integration Complete
+```
+
+### Error Handling
+| Scenario | Severity | Behavior |
+|----------|----------|----------|
+| Any step failure | CRITICAL | Global `send-error` handler routes to `Note-Error`, logs summary, rethrow disabled |
+| Success | INFO | "Integration Completed" message via `PutIntegrationMessage` |
+
+### 🎯 Adapting This Pattern
+The launch-parameter-driven validate-only toggle isn't specific to accounting journals — the same `cc:eval` → `cc:set-headers` → WWS call structure works for any Workday Submit-type operation where you want a single integration to support both a dry-run/validation pass and a live submission, controlled by whoever launches the integration rather than by maintaining two separate integrations.
+
 ---
 ## Contributing
 
