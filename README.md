@@ -31,7 +31,7 @@ If you want to support me and my repo! You can do so now by buying me a cup of c
 |`INT_AI_Yes_No_Compliance_Check.clar` | AI-powered preferred name compliance validator using Claude — loops per worker, sends policy and executive list to Claude, returns YES/NO decision per worker in an aggregated HTML report | 2026 |
 |`INT_AI_Benefits_Enrollment_Analysis.clar` | AI-powered benefits enrollment analysis using Claude — loops per worker, extracts plan enrollment and cost data from Workday, returns aggregated HTML report with per-worker cost breakdown and plan distribution | 2026 |
 | `INT_Validate_Mode_Demo.clar` | Demonstrates toggling Workday's validate-only submission mode via a launch parameter, using a static Submit_Accounting_Journal_Request test payload | 2026 |
-
+| `INT_EOI_File_Outbound.clar` | EOI outbound file integration — extracts pending EOI elections from Workday and writes a pipe-delimited flat file for carrier delivery | 2026 |
 ---
 
 ## Aladtec Time-Off Integration (Starter Kit)
@@ -1679,6 +1679,107 @@ Start (ValidateMode param) → Eval: store validate_mode prop
 ### 🎯 Adapting This Pattern
 The launch-parameter-driven validate-only toggle isn't specific to accounting journals — the same `cc:eval` → `cc:set-headers` → WWS call structure works for any Workday Submit-type operation where you want a single integration to support both a dry-run/validation pass and a live submission, controlled by whoever launches the integration rather than by maintaining two separate integrations.
 
+---
+## EOI Outbound File Integration Example
+ 
+### Overview
+This starter kit extracts all active employees with pending Evidence of Insurability (EOI) elections from Workday and writes a pipe-delimited flat file for carrier delivery. EOI elections are triggered when an employee elects coverage above the Guaranteed Issue (GI) amount — most commonly on Supplemental Life, Voluntary LTD, or AD&D plans. The carrier uses this file to initiate underwriting review.
+ 
+The integration calls `Get_Workers` (Human_Resources v42.2) with benefit enrollments enabled, filters for pending EOI elections inside the XSLT mediation step, validates required fields, calculates the amount over GI, and writes the output file to the Integration Event. Error handling is scoped separately at the WWS build step and the XSLT transform step with individual Cloud Log entries for each.
+ 
+> ⚠️ `Get_Workers` does not support filtering by EOI status in the request criteria. All active employees are returned and filtered inside the XSLT. For large tenants, consider migrating the data source to a RaaS Advanced Custom Report filtered on EOI Status = Pending to reduce payload size.
+ 
+### What's Included
+- `Get_Workers` WWS call (Human_Resources v42.2) with response group trimmed to only what EOI requires
+- XSLT 3.0 transform (`WriteEOIFile.xsl`) filtering for pending EOI elections and writing a pipe-delimited flat file
+- SSN masking via launch parameter (`MaskSSN=Y` masks to last 4, `MaskSSN=N` outputs full SSN)
+- Amount over GI calculated inline (`ElectedAmount - GIAmount`)
+- Plan type filter launch parameter — pass a specific plan name or leave blank for all pending EOI elections
+- Cloud logging on WWS build failure and XSLT transform failure with separate error paths
+- Global error handler routing to CRITICAL `PutIntegrationMessage` on unhandled exceptions
+- INFO completion messages on CSV creation and integration completion
+### What's NOT Included (still needed for production)
+- SFTP delivery — the output file is currently stored on the Integration Event. A `cc:sftp-out` step needs to be added after the XSLT transform step, pointed at the `SFTP_Path` launch parameter
+- Benefit enrollment XML paths under `Benefit_Enrollment_Data` are derived from standard Workday naming conventions and must be verified against a live `Get_Workers` response with `Include_Benefit_Enrollments=true` in your tenant before deploying (see ⚠️ markers in the XSLT)
+- Pagination — the current assembly does not loop through Get_Workers pages. For tenants with large employee populations, a while-loop page incrementor needs to be added around the WWS call
+- PGP encryption — no encryption step is included. If your carrier requires encrypted delivery, add a PGP encrypt step between the XSLT output and the SFTP delivery
+- Dependent coverage rows — the current output is one row per employee election. If the carrier requires separate rows for spouse or dependent coverage, the XSLT for-each loop needs to be extended to iterate coverage targets
+### Integration System Attributes
+| Attribute Map | Attribute | Description |
+|---|---|---|
+| Config | `Carrier_Group_Number` | Carrier group/policy number stamped on every output row |
+| Config | `SFTP_Path` | Delivery path on the carrier SFTP server |
+| Config | `Benefit_Plan` | Filter output to a specific benefit plan name. Leave blank to include all pending EOI elections |
+ 
+### Launch Parameters
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `MaskSSN` | Text | `Y` | `Y` = last 4 only, `N` = full SSN. ISU must have National ID security domain for full SSN |
+| `RunDate` | Text | `` | Pass as `YYYY-MM-DD` string. Stamped on every output row |
+ 
+### XSLT Parameters
+| Parameter | Default | Description |
+|---|---|---|
+| `CarrierGroupNumber` | `` | Passed from integration attribute |
+| `MaskSSN` | `Y` | Controls SSN masking |
+| `PlanTypeFilter` | `` | Filter to one plan type. Empty = all pending EOI |
+| `RunDate` | `` | Passed as string from Studio |
+| `SEP` | `\|` | Field separator. Change to `,` for CSV |
+ 
+### Output File — Column Reference
+| Column | Source | Notes |
+|---|---|---|
+| EmployeeID | `Worker_Data/Worker_ID` | ✅ Confirmed path |
+| LastName | `Personal_Data/.../Last_Name` | ✅ Confirmed path |
+| FirstName | `Personal_Data/.../First_Name` | ✅ Confirmed path |
+| SSN | `Identification_Data/National_ID[USA-SSN]` | ✅ Confirmed — masked by default |
+| DateOfBirth | `Personal_Information_Data/Birth_Date` | ✅ Confirmed path |
+| DateOfHire | `Worker_Status_Data/Hire_Date` | ✅ Confirmed path |
+| EmploymentStatus | `Worker_Status_Data/Active` | ✅ Active / Inactive |
+| PlanName | `Benefit_Plan_Data/Plan_Name` | ⚠️ Verify in tenant |
+| PlanType | `Benefit_Plan_Data/Plan_Type` | ⚠️ Verify in tenant |
+| CoverageType | `Coverage_Data/Coverage_Type` | ⚠️ Verify in tenant |
+| GuaranteedIssueAmount | `Coverage_Data/Guaranteed_Issue_Amount` | ⚠️ Verify in tenant |
+| ElectedCoverageAmount | `Coverage_Data/Coverage_Amount` | ⚠️ Verify in tenant |
+| AmountOverGI | Calculated | `ElectedAmount - GIAmount` |
+| CurrentAmountInForce | `Coverage_Data/Current_Coverage_Amount` | ⚠️ Verify in tenant |
+| EOIReason | `EOI_Evidence_Data/EOI_Reason` | ⚠️ Verify in tenant |
+| ElectionEffectiveDate | `Coverage_Data/Benefit_Coverage_Begin_Date` | ⚠️ Verify in tenant |
+| EnrollmentEventType | `Enrollment_Event_Data/Enrollment_Event_Type` | ⚠️ Verify in tenant |
+| CarrierGroupNumber | Launch parameter | |
+| RunDate | Launch parameter | |
+ 
+### Flow Overview
+```
+Start → AsyncMediation
+     → GetEOIWorker (local-out → local-in)
+          → Write: Get_Workers_Request (v42.2)
+          → [error] CloudLog: Error on Write Get Worker
+          → WorkdayOutSoap (Human_Resources v42.2)
+               → XsltPlus: WriteEOIFile.xsl
+               → PutIntegrationMessage: "CSV file is created" (INFO)
+               → [error] CloudLog: Error on Transform File
+     → Store: Log.html
+     → PutIntegrationMessage: "Integration is Completed" (INFO)
+ 
+global-error-handler → PutIntegrationMessage (CRITICAL)
+```
+ 
+### Error Handling
+| Scenario | Severity | Behavior |
+|---|---|---|
+| Get_Workers request build fails | ERROR | CloudLog — `Error on Write Get Worker` + `context.errorMessage` |
+| XSLT transform fails | ERROR | CloudLog — `Error on Transform File` + `context.errorMessage` |
+| Unhandled exception | CRITICAL | Global handler — `PutIntegrationMessage` |
+| CSV created | INFO | `PutIntegrationMessage` — "CSV file is created" |
+| Integration complete | INFO | `PutIntegrationMessage` — "Integration is Completed" |
+ 
+### Files
+| File | Description |
+|---|---|
+| `INT_EOI_File_Outbound.clar` | Studio assembly — Get_Workers EOI filter to pipe-delimited flat file |
+| `WriteEOIFile.xsl` | XSLT 3.0 transform — filters pending EOI elections, calculates amount over GI, outputs flat file |
+ 
 ---
 ## Contributing
 
