@@ -35,7 +35,7 @@
 *.md    text eol=lf
 
 # Binary files — no line ending conversion
-*.clar  binary
+*.clar  linguist-language=XML
 *.pdf   binary
 *.png   binary
 *.jpg   binary
