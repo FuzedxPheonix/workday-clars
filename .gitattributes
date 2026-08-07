@@ -1,0 +1,41 @@
+# ============================================================
+# .gitattributes
+# workday-clars — Cristian G. | Core Integration LLC
+# Controls GitHub language detection and file handling
+# ============================================================
+
+# ── Workday Studio assemblies ───────────────────────────────
+# CLAR files are ZIP-packaged Studio assemblies
+# Map to XML so GitHub shows them in the language bar
+*.clar  linguist-language=XML
+
+# ── XSLT transforms ─────────────────────────────────────────
+*.xsl   linguist-language=XSLT
+*.xslt  linguist-language=XSLT
+
+# ── XML (SOAP requests, config, assembly schemas) ───────────
+*.xml   linguist-language=XML
+
+# ── Groovy (Studio scripting) ───────────────────────────────
+*.groovy linguist-language=Groovy
+
+# ── Exclude from language stats ─────────────────────────────
+# Markdown docs should not skew the language breakdown
+*.md    linguist-detectable=false
+
+# PDF guides — binary, exclude entirely
+*.pdf   linguist-detectable=false binary
+
+# ── Line endings ─────────────────────────────────────────────
+# Normalize line endings for cross-platform consistency
+*.xsl   text eol=lf
+*.xslt  text eol=lf
+*.xml   text eol=lf
+*.groovy text eol=lf
+*.md    text eol=lf
+
+# Binary files — no line ending conversion
+*.clar  binary
+*.pdf   binary
+*.png   binary
+*.jpg   binary
