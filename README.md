@@ -32,6 +32,7 @@ If you want to support me and my repo! You can do so now by buying me a cup of c
 |`INT_AI_Benefits_Enrollment_Analysis.clar` | AI-powered benefits enrollment analysis using Claude — loops per worker, extracts plan enrollment and cost data from Workday, returns aggregated HTML report with per-worker cost breakdown and plan distribution | 2026 |
 | `INT_Validate_Mode_Demo.clar` | Demonstrates toggling Workday's validate-only submission mode via a launch parameter, using a static Submit_Accounting_Journal_Request test payload | 2026 |
 | `INT_EOI_File_Outbound.clar` | EOI outbound file integration — extracts pending EOI elections from Workday and writes a pipe-delimited flat file for carrier delivery | 2026 |
+| `INT_Studio_Payroll_PayGroup_Routing.clar` | Pay group lookup and SFTP file routing -- routes External Pay Group response to carrier-specific SFTP paths based on pay group value | 2026 |
 ---
 
 ## Aladtec Time-Off Integration (Starter Kit)
@@ -1779,6 +1780,135 @@ global-error-handler → PutIntegrationMessage (CRITICAL)
 |---|---|
 | `INT_EOI_File_Outbound.clar` | Studio assembly — Get_Workers EOI filter to pipe-delimited flat file |
 | `WriteEOIFile.xsl` | XSLT 3.0 transform — filters pending EOI elections, calculates amount over GI, outputs flat file |
+ 
+---
+## INT_Studio_Payroll_PayGroup_Routing
+ 
+### Overview
+This integration accepts a Pay Group ID as a launch parameter, looks up the corresponding External Pay Group in Workday via the Payroll Interface web service, and routes the response file to the appropriate SFTP destination based on the pay group value. Each pay group maps to a dedicated SFTP path, allowing downstream payroll systems or vendors to receive only the data relevant to them.
+ 
+The routing logic uses an MVEL decision step to evaluate the pay group value and branch to the correct SFTP delivery path. Unrecognized pay groups are caught and logged as an error with a corresponding Integration Event message. The integration is intentionally simple by design -- the goal is a working file routing pattern that can be extended as new pay groups are added.
+ 
+> **Future enhancement:** The routing conditions (`WCW`, `WCE`) are currently hardcoded in the MVEL route step. A natural next evolution is to move these mappings into Workday Integration Mappings so new pay groups can be added without touching the assembly code. End-user email notifications per pay group are also a planned enhancement -- the SFTP delivery is the current production pattern.
+ 
+---
+ 
+### What's Included
+- Launch parameter (`Pay_Group`) to drive routing logic at runtime
+- `Get_External_Pay_Groups` SOAP call (Payroll_Interface v42.2) to validate and retrieve the pay group record
+- MVEL route step branching on pay group value -- currently supports `WCW` and `WCE`
+- Per-route SFTP delivery with separate endpoints per pay group
+- Cloud Log entries at each routing outcome (WCW found, WCE found, pay group not found, WWS error)
+- `PutIntegrationMessage` at each terminal path -- INFO on success, ERROR on unrecognized pay group, CRITICAL on unhandled exception
+- Global error handler routing unhandled exceptions to a CRITICAL Integration Event message
+- Local-in / local-out async pattern isolating the WWS call from the launch entry point
+---
+ 
+### What's NOT Included (Future Enhancements)
+- **Integration Mappings** -- routing conditions are hardcoded in MVEL. Moving `Pay_Group -> SFTP path` mappings to Workday Integration Mappings would allow new pay groups to be onboarded without assembly changes
+- **End-user notifications** -- planned enhancement to notify each pay group owner via email or Integration Event on successful file delivery
+- **Dynamic SFTP credentials** -- SFTP username, password, and endpoint are hardcoded per route. These should be moved to ISS (Integration System Security) or launch parameters for production use
+- **Additional pay groups** -- currently routes `WCW` and `WCE` only. Add new `cc:choose-route` entries in the Route step for each additional pay group
+---
+ 
+### Launch Parameters
+ 
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `Pay_Group` | Text | Yes | External Pay Group ID to look up and route. Must match a configured route value (`WCW`, `WCE`) or the integration will log an error. |
+ 
+---
+ 
+### Routing Logic
+ 
+| Pay Group Value | Route | SFTP Endpoint | Output File | Success Message |
+|---|---|---|---|---|
+| `WCW` | Is_WCW -> AsyncMediation2 | `sftp://test` | `WCW.xml` | "WCW File Sent" (INFO) |
+| `WCE` | Is_WCE -> AsyncMediation3 | `sftp://test1` | `WCE.XML` | "WCE File is Sent" (INFO) |
+| Any other value | Is_Not_Found -> AsyncMediation4 | -- | -- | "Pay group not found" (ERROR) |
+ 
+---
+ 
+### Flow Overview
+ 
+```
+StartHere (workday-in)
+  └─► AsyncMediation -- extract Pay_Group launch parameter
+        └─► Paygroup_Out (local-out -> Paygroup_In local-in)
+              └─► AsyncMediation0
+                    └─► Write: Get_External_Pay_Groups_Request (v42.2)
+                    └─► [error] AsyncMediation5 -> CloudLog: WWS Response Error
+              └─► Get_External_PayGroup_WWS (Payroll_Interface v42.2)
+                    └─► AsyncMediation1 -- copy response to paygroupResp variable
+                          └─► Route (MVEL)
+                                ├─► Is_WCW -> AsyncMediation2
+                                │     └─► Store: WCW.xml
+                                │     └─► CloudLog: WCW File Found
+                                │     └─► SftpOut (sftp://test)
+                                │           └─► PutIntegrationMessage: WCW File Sent (INFO)
+                                │
+                                ├─► Is_WCE -> AsyncMediation3
+                                │     └─► Store: WCE.XML
+                                │     └─► CloudLog: WCE file Found
+                                │     └─► SftpOut0 (sftp://test1)
+                                │           └─► PutIntegrationMessage: WCE File is Sent (INFO)
+                                │
+                                └─► Is_Not_Found -> AsyncMediation4
+                                      └─► CloudLog: Pay Group Not Found (ERROR)
+                                      └─► PutIntegrationMessage: Pay group not found (ERROR)
+ 
+      └─► AsyncMediation6 -- store cloud log
+            └─► PutIntegrationMessage2: Integration Completed (INFO)
+ 
+global-error-handler -> Note-Error -> PutIntegrationMessage (CRITICAL)
+```
+ 
+---
+ 
+### WWS Request -- Get_External_Pay_Groups
+ 
+Calls `Payroll_Interface v42.2 -- Get_External_Pay_Groups` with the pay group ID passed from the launch parameter. Returns the matching External Pay Group record which is stored in the `paygroupResp` variable and used as the routed file output.
+ 
+```xml
+<bsvc:Get_External_Pay_Groups_Request bsvc:version="v42.2"
+    xmlns:bsvc="urn:com.workday/bsvc">
+ 
+    <bsvc:Request_References>
+        <bsvc:External_Pay_Group_Reference>
+            <bsvc:ID bsvc:type="External_Pay_Group_ID">
+                @{props['pay_group']}
+            </bsvc:ID>
+        </bsvc:External_Pay_Group_Reference>
+    </bsvc:Request_References>
+ 
+    <bsvc:Response_Filter>
+        <bsvc:Count>1</bsvc:Count>
+    </bsvc:Response_Filter>
+ 
+</bsvc:Get_External_Pay_Groups_Request>
+```
+ 
+---
+ 
+### Error Handling
+ 
+| Scenario | Severity | Behavior |
+|---|---|---|
+| Pay group not recognized | ERROR | CloudLog + PutIntegrationMessage -- "Pay group not found" |
+| WWS call fails | ERROR | AsyncMediation5 -> CloudLog -- "WWS Response Error" |
+| Unhandled exception | CRITICAL | global-error-handler -> Note-Error -> PutIntegrationMessage |
+| WCW delivered | INFO | PutIntegrationMessage -- "WCW File Sent" |
+| WCE delivered | INFO | PutIntegrationMessage -- "WCE File is Sent" |
+| Integration complete | INFO | PutIntegrationMessage2 -- "Integration Completed" |
+ 
+---
+ 
+### Files
+ 
+| File | Description |
+|---|---|
+| `INT_Studio_Payroll_PayGroup_Routing.clar` | Studio assembly -- pay group lookup and SFTP file routing |
+ 
  
 ---
 ## Contributing
