@@ -6,6 +6,13 @@
             <cc:set name="is.message.severity" value="'CRITICAL'"/>
             <cc:set name="is.message.summary" value="context.errorMessage"/>
         </cc:local-out>
+        <cc:workday-in id="StartHere" routes-to="AsyncMediation">
+            <cc:integration-system name="INT_Github_Version_Control"/>
+        </cc:workday-in>
+        <cc:async-mediation id="AsyncMediation" routes-to="PutIntegrationMessage">
+            <cc:steps/>
+        </cc:async-mediation>
+        <cc:local-out endpoint="vm://wcc/PutIntegrationMessage" id="PutIntegrationMessage"><cc:set name="is.message.severity" value="'INFO'"/><cc:set name="is.message.summary"/></cc:local-out>
 	</cc:assembly>
 
 </beans>

@@ -7,12 +7,34 @@
   <visualProperties x="447" y="173">
     <element href="assembly.xml#Note-Error"/>
   </visualProperties>
+  <visualProperties x="91" y="340">
+    <element href="assembly.xml#StartHere"/>
+  </visualProperties>
+  <visualProperties x="188" y="376">
+    <element href="assembly.xml#AsyncMediation"/>
+  </visualProperties>
+  <visualProperties x="324" y="382">
+    <element href="assembly.xml#PutIntegrationMessage"/>
+  </visualProperties>
   <connections type="routesTo" sourceAnchorX="0.9669421487603306" sourceAnchorY="0.43243243243243246" targetAnchorX="0.06060606060606061" targetAnchorY="0.3783783783783784">
     <source href="assembly.xml#//@beans/@mixed.1/@mixed.1"/>
     <target href="assembly.xml#Note-Error"/>
   </connections>
+  <connections type="routesTo" sourceAnchorX="0.9166666666666666" sourceAnchorY="1.0" targetAnchorX="0.2830188679245283" targetAnchorY="0.5869565217391305">
+    <source href="assembly.xml#StartHere"/>
+    <target href="assembly.xml#AsyncMediation"/>
+  </connections>
+  <connections type="routesTo" sourceAnchorX="1.0" sourceAnchorY="0.20652173913043478" targetAnchorX="0.15333333333333332" targetAnchorY="0.5135135135135135">
+    <source href="assembly.xml#AsyncMediation"/>
+    <target href="assembly.xml#PutIntegrationMessage"/>
+  </connections>
   <swimlanes x="120" y="145" name="Swimlane">
     <elements href="assembly.xml#Note-Error"/>
     <elements href="assembly.xml#//@beans/@mixed.1/@mixed.1"/>
+  </swimlanes>
+  <swimlanes x="70" y="310" name="Swimlane">
+    <elements href="assembly.xml#StartHere"/>
+    <elements href="assembly.xml#AsyncMediation"/>
+    <elements href="assembly.xml#PutIntegrationMessage"/>
   </swimlanes>
 </wdnm:Diagram>

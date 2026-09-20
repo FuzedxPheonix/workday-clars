@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <cloud:cloud-collection xmlns:cloud="urn:com.workday/esb/cloud/10.0" name="INT_Github_Version_Control">
-  <cloud:integration name="INT_Github_Version_Control"/>
+  <cloud:integration name="INT_Github_Version_Control">
+    <cloud:in-connector id="StartHere">
+      <cloud:integration-system name="INT_Github_Version_Control"/>
+    </cloud:in-connector>
+  </cloud:integration>
   <cloud:deployed-by>nouser@notenant</cloud:deployed-by>
 </cloud:cloud-collection>
