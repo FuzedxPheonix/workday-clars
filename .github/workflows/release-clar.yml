@@ -1,0 +1,43 @@
+# Save as .github/workflows/release-clar.yml
+# Trigger: push a tag like  eib-outbound-file-v1.2.0
+#   -> kit folder: starter-kits/eib-outbound-file
+#   -> release asset: eib-outbound-file-v1.2.0.clar
+name: Release CLAR
+
+on:
+  push:
+    tags:
+      - '*-v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse tag
+        id: parse
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          echo "kit=${tag%-v*}" >> "$GITHUB_OUTPUT"
+          echo "version=${tag##*-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate and package
+        run: |
+          kit="starter-kits/${{ steps.parse.outputs.kit }}"
+          [ -d "$kit" ] || { echo "No folder $kit"; exit 1; }
+          clar=$(ls "$kit"/*.clar | head -n1)
+          unzip -tq "$clar"
+          mkdir -p dist
+          cp "$clar" "dist/${{ steps.parse.outputs.kit }}-v${{ steps.parse.outputs.version }}.clar"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.clar \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes
