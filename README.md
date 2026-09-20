@@ -8,7 +8,53 @@ If you want to support me and my repo! You can do so now by buying me a cup of c
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow)](https://buy.stripe.com/cNibJ25yk97aaN9fUi5c400)
 ---
+## Versioning and releases
 
+Each starter kit lives in its own folder under `starter-kits/`. Studio only exports `.clar` files, and a `.clar` is a zip, so Git can't show what changed inside it. To get readable history, each kit also keeps an unzipped copy in `src/`.
+
+### Kit folder layout
+
+```
+starter-kits/
+  <kit-name>/
+    <kit-name>.clar     <- exported from Workday Studio (replace on every update)
+    src/                <- created by unpack_clar.sh (never edit by hand)
+    CHANGELOG.md        <- what changed in each version (edit by hand)
+```
+
+### Updating a kit
+
+1. Export the updated `.clar` from Studio and replace the old one in the kit folder (same file name).
+2. Unpack it from the repo root:
+   ```
+   bash unpack_clar.sh starter-kits/<kit-name>
+   ```
+3. Add an entry at the top of the kit's `CHANGELOG.md` (copy `templates/CHANGELOG.template.md` for a new kit).
+4. Commit and push:
+   ```
+   git add .
+   git commit -m "Short description of what changed"
+   git push
+   ```
+5. Tag the version and push the tag, which publishes a GitHub Release with the `.clar` attached:
+   ```
+   git tag <kit-name>-v<MAJOR.MINOR.PATCH>
+   git push origin <kit-name>-v<MAJOR.MINOR.PATCH>
+   ```
+
+### Rules
+
+- The tag name must match the kit folder name exactly. For example, tag `test-git-v0.2.0` publishes the `.clar` from `starter-kits/test-git/`.
+- Keep exactly one `.clar` per kit folder.
+- Do not edit files inside `src/`. Re-run the script instead.
+- Version numbers: PATCH for fixes (0.1.1), MINOR for new features (0.2.0), MAJOR for breaking changes (1.0.0).
+- Before committing an export, check `src/` for tenant URLs, ISU usernames, IDs, or credentials, and replace them with placeholders.
+
+### Finding old versions
+
+Every tagged version is listed under **Releases** on the right side of the repo page, with its `.clar` available to download. File history in Git shows the readable changes to the unzipped XML in `src/`.
+
+---
 ## Files
 
 | File | Description | Last Updated |
