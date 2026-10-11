@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><beans xmlns="http://www.springframework.org/schema/beans" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:beans="http://www.springframework.org/schema/beans" xmlns:cc="http://www.capeclear.com/assembly/10" xmlns:cloud="urn:com.workday/esb/cloud/10.0" xmlns:env="http://schemas.xmlsoap.org/soap/envelope/" xmlns:pi="urn:com.workday/picof" xmlns:wd="urn:com.workday/bsvc" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+ 
+	<cc:assembly id="WorkdayAssembly" version="2026.24">
+        <cc:send-error id="global-error-handler" rethrow-error="false" routes-to="Note-Error"/>
+        <cc:local-out endpoint="vm://wcc/PutIntegrationMessage" id="Note-Error">
+            <cc:set name="is.message.severity" value="'CRITICAL'"/>
+            <cc:set name="is.message.summary" value="context.errorMessage"/>
+        </cc:local-out>
+        <cc:workday-in id="StartHere" routes-to="AsyncMediation">
+            <cc:integration-system name="INT_Get_Applicant_Data_Outbound"/>
+        </cc:workday-in>
+        <cc:async-mediation id="AsyncMediation" routes-to="GetApplicantOut">
+            <cc:steps/>
+        </cc:async-mediation>
+        <cc:async-mediation id="AsyncMediation0" routes-to="WorkdayOutSoap">
+            <cc:steps>
+                <cc:write id="Write">
+                    <cc:message>
+                        <cc:text>&lt;bsvc:Get_Applicants_Request xmlns:bsvc="urn:com.workday/bsvc" bsvc:version="v47.0"&gt;
+    &lt;bsvc:Response_Group&gt;
+        &lt;bsvc:Include_Reference&gt;true&lt;/bsvc:Include_Reference&gt;
+        &lt;bsvc:Include_Personal_Information&gt;true&lt;/bsvc:Include_Personal_Information&gt;
+        &lt;bsvc:Show_All_Personal_Information&gt;false&lt;/bsvc:Show_All_Personal_Information&gt;
+        &lt;bsvc:Include_Recruiting_Information&gt;true&lt;/bsvc:Include_Recruiting_Information&gt;
+        &lt;bsvc:Include_Qualification_Profile&gt;false&lt;/bsvc:Include_Qualification_Profile&gt;
+        &lt;bsvc:Include_Resume&gt;false&lt;/bsvc:Include_Resume&gt;
+        &lt;bsvc:Include_Background_Check&gt;false&lt;/bsvc:Include_Background_Check&gt;
+        &lt;bsvc:Include_External_Integration_ID_Data&gt;false&lt;/bsvc:Include_External_Integration_ID_Data&gt;
+    &lt;/bsvc:Response_Group&gt;
+&lt;/bsvc:Get_Applicants_Request&gt;</cc:text>
+                    </cc:message>
+                </cc:write>
+            </cc:steps>
+            <cc:send-error id="SendError" routes-to="AsyncMediation2"/>
+        </cc:async-mediation>
+        <cc:workday-out-soap application="Recruiting" id="WorkdayOutSoap" routes-response-to="AsyncMediation1" version="47.0"/>
+        <cc:async-mediation id="AsyncMediation1" routes-to="PutIntegrationMessage">
+            <cc:steps>
+                <cc:xml-to-json id="XmlToJson"/>
+                <cc:cloud-log id="CloudLog" level="info" message="JSON Data Collected Successfully"/>
+                <cc:store id="Store" title="data.json"/>
+            </cc:steps>
+        </cc:async-mediation>
+        <cc:async-mediation id="AsyncMediation2">
+            <cc:steps>
+                <cc:cloud-log id="CloudLog" level="error" message="Error: on Transformation"/>
+            </cc:steps>
+        </cc:async-mediation>
+        <cc:local-in id="GetApplicantIn" routes-to="AsyncMediation0"/>
+        <cc:local-out endpoint="vm://wcc/PutIntegrationMessage" id="PutIntegrationMessage"><cc:set name="is.message.severity" value="'INFO'"/><cc:set name="is.message.summary" value="&quot;Completed Applicant Data JSON&quot;"/></cc:local-out>
+        <cc:local-out endpoint="vm://INT_Get_Applicant_Data_Outbound/GetApplicantIn" id="GetApplicantOut" routes-response-to="AsyncMediation3" store-message="none"/>
+        <cc:async-mediation id="AsyncMediation3" routes-to="PutIntegrationMessage0">
+            <cc:steps>
+                <cc:store id="Store" input="variable" input-variable="cloud-log-content" title="log.html"/>
+            </cc:steps>
+        </cc:async-mediation>
+        <cc:local-out endpoint="vm://wcc/PutIntegrationMessage" id="PutIntegrationMessage0"><cc:set name="is.message.severity" value="'INFO'"/><cc:set name="is.message.summary" value="&quot;Completed Integration&quot;"/></cc:local-out>
+	</cc:assembly>
+
+</beans>

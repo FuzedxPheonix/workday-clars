@@ -1957,6 +1957,73 @@ Calls `Payroll_Interface v42.2 -- Get_External_Pay_Groups` with the pay group ID
  
  
 ---
+## INT_Get_Applicant_Data_Outbound
+ 
+**Type:** Studio Integration  
+**Web Service:** Get_Applicants (Recruiting v47.0)  
+**Output:** JSON (`data.json` stored in integration event)  
+**Launch:** Manual or Scheduled  
+ 
+---
+ 
+### Overview
+ 
+Pulls all applicant data from Workday via the Get_Applicants web service and outputs the response as a JSON file. Designed for data dumps, ad hoc data requests, or feeding applicant data to downstream systems or reporting tools without file transformation overhead.
+ 
+---
+ 
+### What It Does
+ 
+1. Calls `Get_Applicants` on the Recruiting web service (v47.0)
+2. Returns applicant reference, personal information, and recruiting information
+3. Converts the XML response to JSON using Studio's built-in `xml-to-json` step
+4. Stores the output as `data.json` in the integration event document
+5. Logs success and writes a completion message to the integration event
+---
+ 
+### Response Group
+ 
+| Field | Value |
+|---|---|
+| Include_Reference | `true` |
+| Include_Personal_Information | `true` |
+| Show_All_Personal_Information | `false` |
+| Include_Recruiting_Information | `true` |
+| Include_Qualification_Profile | `false` |
+| Include_Resume | `false` |
+| Include_Background_Check | `false` |
+| Include_External_Integration_ID_Data | `false` |
+ 
+---
+ 
+### Integration System Name
+ 
+`INT_Get_Applicant_Data_Outbound`
+ 
+---
+ 
+### Output
+ 
+The JSON file (`data.json`) is available in the integration event under **Integration Document** after a successful run. No SFTP delivery — retrieve directly from the event.
+ 
+---
+ 
+### Use Cases
+ 
+- One-off applicant data requests from HR or recruiting teams
+- Feeding applicant records into a downstream tool or script
+- Quick data validation against what Workday has on file
+---
+ 
+### Notes
+ 
+- No launch parameters — runs against all applicants with no filters
+- For large tenants with high applicant volume, monitor response time; pagination is not implemented in this version
+- To add filters (by requisition, status, or date), add launch parameters and populate `Request_Criteria` in the Write step
+ 
+
+
+---
 ## Contributing
 
 Have a Studio starter kit of your own? Feel free to open a PR. The goal is to build a library of clean, well-documented patterns for the Workday community.
