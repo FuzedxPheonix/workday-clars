@@ -2014,6 +2014,125 @@ The JSON file (`data.json`) is available in the integration event under **Integr
 - Feeding applicant records into a downstream tool or script
 - Quick data validation against what Workday has on file
 ---
+# INT_Applicant_AI_Scorer
+
+## Overview
+
+**INT_Applicant_AI_Scorer** is a Workday Studio integration that uses the Anthropic Claude AI API to score applicants against a job requisition. Given a Job Requisition ID and a scoring prompt, the integration retrieves the full job req details, sends them to Claude for analysis, parses the structured XML response, and automatically advances high-scoring candidates to the next recruiting stage via `Move_Candidate`. All other candidates are logged as warnings for recruiter review.
+
+This integration is designed to assist recruiters — not replace their judgment. Scores surface signal; humans make the final call.
+
+---
+
+## Flow
+
+```
+StartHere (WorkdayIn)
+  → AsyncMediation        Load launch params + integration attributes
+  → GetJobReqOut/In       Call Get_Job_Requisitions, store response
+  → MoveCandidateOut/In   Build AI payload, call Anthropic API
+  → AsyncMediation4       Parse JSON response → extract XML scoring results
+  → Splitter              Split on scoring_results/applicant
+  → AsyncMediation0       Extract tier, candidate_id, reason per applicant
+  → Route                 Branch: HIGH → move candidate | LOW → warn
+      HIGH → AsyncMediation6 → MoveCandidateWWS → log INFO
+      LOW  → AsyncMediation7 → cloud-log WARNING
+  → AsyncMediation30      Store cloud log as log.html
+  → PutIntegrationMessage Completed
+```
+
+---
+
+## Launch Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `job_req` | Text | Workday Job Requisition ID (e.g. `JR-0001`) |
+| `prompt` | Text | Scoring instructions sent to Claude as the user message |
+
+---
+
+## Integration Attributes
+
+Stored under the `Anthropic_Config` integration attribute category:
+
+| Attribute | Description |
+|-----------|-------------|
+| `API_Key` | Anthropic API key |
+| `Endpoint` | Base URL (e.g. `https://api.anthropic.com/v1`) |
+| `Claude_Model` | Model ID (e.g. `claude-opus-4-5`) |
+| `Max_Tokens` | Max tokens for the response (e.g. `1024`) |
+
+---
+
+## AI Prompt Design
+
+The system prompt instructs Claude to respond **only** in the following XML structure:
+
+```xml
+<scoring_results>
+  <applicant>
+    <candidate_id>12345</candidate_id>
+    <score>8</score>
+    <tier>HIGH</tier>
+    <reason>Strong match on required skills and education</reason>
+  </applicant>
+</scoring_results>
+```
+
+The user message combines the `prompt` launch parameter with the full `Get_Job_Requisitions` response, giving Claude the job title, description, and qualification data to score against.
+
+---
+
+## Routing Logic
+
+| Tier | Action |
+|------|--------|
+| `HIGH` | `Move_Candidate` via WWS using `Candidate_Criteria_Data` (candidate ID + req ID) → INFO cloud log |
+| Any other | WARNING cloud log with reason and score for recruiter review |
+
+---
+
+## Outputs
+
+| Output | Description |
+|--------|-------------|
+| Cloud log (INFO) | One entry per HIGH candidate moved — includes score and reason |
+| Cloud log (WARNING) | One entry per non-HIGH candidate — includes score and reason |
+| `log.html` | Full cloud log content stored as a file in the integration event |
+| `PutIntegrationMessage` | Summary message on completion |
+
+---
+
+## Web Services Used
+
+| Operation | Service | Version | Purpose |
+|-----------|---------|---------|---------|
+| `Get_Job_Requisitions` | Recruiting | v47.0 | Retrieve job req details and qualifications |
+| `Move_Candidate` | Recruiting | v47.0 | Advance HIGH-scored candidates to next stage |
+
+---
+
+## External API
+
+| Detail | Value |
+|--------|-------|
+| Provider | Anthropic |
+| Endpoint | `{Endpoint}/messages` |
+| Method | POST |
+| Auth | `x-api-key` header |
+| Version header | `anthropic-version: 2023-06-01` |
+
+---
+
+## Notes
+
+- The `Move_Candidate` call uses `Candidate_Criteria_Data` with the candidate ID returned by Claude and the job req ID from the launch parameter. Workday resolves the active job application from these two references automatically.
+- The `version` attribute on `MoveCandidateWWS` should be `47.0` not `v47.0` — verify this matches your tenant's SOAP endpoint format.
+- Claude is instructed to respond in strict XML. If the response is malformed or contains extra text, the splitter will fail. Consider adding a `cc:send-error` on the splitter step for production use.
+- This integration does not call `Get_Applicants`. Applicant data must be included in the `prompt` launch parameter or sourced separately and appended to the user content before the AI call.
+- Framing scores as recruiter-assist (not auto-decision) is recommended for compliance with EEOC guidelines and emerging AI hiring regulations (Illinois AI Video Interview Act, NYC Local Law 144).
+---
  
 ### Notes
  

@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><beans xmlns="http://www.springframework.org/schema/beans" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:beans="http://www.springframework.org/schema/beans" xmlns:cc="http://www.capeclear.com/assembly/10" xmlns:cloud="urn:com.workday/esb/cloud/10.0" xmlns:env="http://schemas.xmlsoap.org/soap/envelope/" xmlns:pi="urn:com.workday/picof" xmlns:wd="urn:com.workday/bsvc" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+ 
+	<cc:assembly id="WorkdayAssembly" version="2026.24">
+        <cc:send-error id="global-error-handler" rethrow-error="false" routes-to="Note-Error"/>
+        <cc:local-out endpoint="vm://wcc/PutIntegrationMessage" id="Note-Error">
+            <cc:set name="is.message.severity" value="'CRITICAL'"/>
+            <cc:set name="is.message.summary" value="context.errorMessage"/>
+        </cc:local-out>
+        <cc:workday-in id="StartHere" routes-to="AsyncMediation">
+            <cc:integration-system name="INT_Applicant_AI_Scorer">
+        <cloud:param name="job_req">
+          <cloud:type>
+            <cloud:simple-type>text</cloud:simple-type>
+          </cloud:type>
+        </cloud:param>
+        <cloud:param name="prompt">
+          <cloud:type>
+            <cloud:simple-type>text</cloud:simple-type>
+          </cloud:type>
+        </cloud:param>
+      </cc:integration-system>
+        </cc:workday-in>
+        <cc:async-mediation id="AsyncMediation" routes-to="GetJobReqOut">
+            <cc:steps>
+                <cc:eval id="LaunchParams">
+                    <cc:expression>props['prompt'] = lp.getParameterData('prompt')</cc:expression>
+                    <cc:expression>props['job_req_id'] = lp.getParameterData('job_req')</cc:expression>
+                </cc:eval>
+                <cc:eval id="Attributes">
+                    <cc:expression>props['api_key'] = intsys.getAttribute('Anthropic_Config', 'API_Key')</cc:expression>
+                    <cc:expression>props['endpoint'] = intsys.getAttribute('Anthropic_Config', 'Endpoint')</cc:expression>
+                    <cc:expression>props['claude_model'] = intsys.getAttribute('Anthropic_Config', 'Claude_Model')</cc:expression>
+                    <cc:expression>props['max_tokens'] = intsys.getAttribute('Anthropic_Config', 'Max_Tokens')</cc:expression>
+                </cc:eval>
+                <cc:eval id="Eval">
+                    <cc:expression>vars['job_req_response'] = ''</cc:expression>
+                </cc:eval>
+            </cc:steps>
+        </cc:async-mediation>
+        <cc:async-mediation id="AsyncMediation4" routes-to="Splitter">
+            <cc:steps>
+                <cc:json-to-xml id="JsonToXml" root-element-name="response"/>
+                <cc:eval id="Eval">
+                    <cc:expression>props['ai.report'] = parts[0].xpath('/response/content/text')</cc:expression>
+                </cc:eval>
+                <cc:cloud-log header="Debugging Reponse AI" id="CloudLog" level="debug" message="@{props['ai.report'].text}"/>
+                <cc:write id="Write">
+                    <cc:message>
+                        <cc:text>@{props['ai.report']}</cc:text>
+                    </cc:message>
+                </cc:write>
+            </cc:steps>
+        </cc:async-mediation>
+        <cc:http-out endpoint="@{props['prompt_endpoint']}" http-method="POST" id="HttpOut" routes-response-to="AsyncMediation4"/>
+        <cc:async-mediation id="AsyncMediation5">
+            <cc:steps>
+                <cc:cloud-log header="ERROR: Claude AI Endpoint" id="CloudLog" level="error" message="@{context.errorMessage}"/>
+            </cc:steps>
+        </cc:async-mediation>
+        <cc:async-mediation id="AsyncMediation3" routes-to="HttpOut">
+            <cc:steps>
+                <cc:eval id="Eval">
+                    <cc:expression>props['prompt_endpoint'] = props['endpoint'] + '/messages'</cc:expression>
+                </cc:eval>
+                <cc:write id="Write">
+                    <cc:message>
+                        <cc:text>{
+  "model": "@{props['claude_model']}",
+  "max_tokens": @{props['max_tokens']},
+  "system": "You are a recruiting assistant. Analyze the job requisition and applicant data provided. Respond ONLY in the following XML format, no other text:\n&lt;scoring_results&gt;\n  &lt;applicant&gt;\n    &lt;job_application_id&gt;WD-12345&lt;/job_application_id&gt;\n    &lt;score&gt;8&lt;/score&gt;\n    &lt;tier&gt;HIGH&lt;/tier&gt;\n    &lt;reason&gt;Strong match on required skills and education&lt;/reason&gt;\n  &lt;/applicant&gt;\n&lt;/scoring_results&gt;",
+  "messages": [
+    {
+      "role": "user",
+      "content": "@{props['prompt']} \n\n@{vars['job_req_response'].text}"
+    }
+  ]
+}</cc:text>
+                    </cc:message>
+                </cc:write>
+                <cc:set-headers id="SetHeaders">
+                    <cc:remove-headers/>
+                    <cc:add-headers>
+                        <cc:add-header name="x-api-key" value="@{props['api_key']}"/>
+                        <cc:add-header name="anthropic-version" value="2023-06-01"/>
+                        <cc:add-header name="Content-Type" value="application/json"/>
+                    </cc:add-headers>
+                </cc:set-headers>
+            </cc:steps>
+            <cc:send-error id="SendError" routes-to="AsyncMediation5"/>
+        </cc:async-mediation>
+        <cc:local-in id="MoveCandidateAI" routes-to="AsyncMediation3"/>
+        <cc:async-mediation id="AsyncMediation1" routes-to="GetJobReq">
+            <cc:steps>
+                <cc:write id="Write">
+                    <cc:message>
+                        <cc:text>&lt;bsvc:Get_Job_Requisitions_Request xmlns:bsvc="urn:com.workday/bsvc" bsvc:version="v47.0"&gt;
+&lt;!-- Optional: --&gt;
+&lt;bsvc:Request_References bsvc:Skip_Non_Existing_Instances="false"&gt;
+&lt;!-- 1 or more repetitions: --&gt;
+&lt;bsvc:Job_Requisition_Reference bsvc:Descriptor="string"&gt;
+&lt;!-- Zero or more repetitions: --&gt;
+&lt;bsvc:ID bsvc:type="string"&gt;@{props['job_req_id']}&lt;/bsvc:ID&gt;
+&lt;/bsvc:Job_Requisition_Reference&gt;
+&lt;/bsvc:Request_References&gt;
+&lt;!-- Optional: --&gt;
+&lt;bsvc:Request_Criteria&gt;
+&lt;!-- Zero or more repetitions: --&gt;
+
+
+
+
+&lt;/bsvc:Request_Criteria&gt;
+
+&lt;bsvc:Response_Group&gt;
+&lt;!-- Optional: --&gt;
+&lt;bsvc:Include_Reference&gt;true&lt;/bsvc:Include_Reference&gt;
+&lt;!-- Optional: --&gt;
+&lt;bsvc:Include_Job_Requisition_Definition_Data&gt;true&lt;/bsvc:Include_Job_Requisition_Definition_Data&gt;
+&lt;!-- Optional: --&gt;
+&lt;bsvc:Include_Job_Requisition_Restrictions_Data&gt;false&lt;/bsvc:Include_Job_Requisition_Restrictions_Data&gt;
+&lt;!-- Optional: --&gt;
+&lt;bsvc:Include_Qualifications&gt;true&lt;/bsvc:Include_Qualifications&gt;
+&lt;!-- Optional: --&gt;
+&lt;bsvc:Include_Job_Requisition_Attachments&gt;true&lt;/bsvc:Include_Job_Requisition_Attachments&gt;
+&lt;!-- Optional: --&gt;
+&lt;bsvc:Include_Organizations&gt;true&lt;/bsvc:Include_Organizations&gt;
+&lt;!-- Optional: --&gt;
+&lt;bsvc:Include_Roles&gt;true&lt;/bsvc:Include_Roles&gt;
+&lt;/bsvc:Response_Group&gt;
+&lt;/bsvc:Get_Job_Requisitions_Request&gt;</cc:text>
+                    </cc:message>
+                </cc:write>
+            </cc:steps>
+        </cc:async-mediation>
+        <cc:workday-out-soap application="Recruiting" id="GetJobReq" routes-response-to="AsyncMediation2" version="v47.0"/>
+        <cc:async-mediation id="AsyncMediation2">
+            <cc:steps>
+                <cc:copy id="Copy" output="variable" output-variable="job_req_response"/>
+            </cc:steps>
+        </cc:async-mediation>
+        <cc:splitter id="Splitter">
+            <cc:sub-route name="SubRoute" routes-to="AsyncMediation0"/>
+            <cc:xpath-splitter xpath="scoring_results/applicant"/>
+        </cc:splitter>
+        <cc:async-mediation id="AsyncMediation0" routes-to="Route">
+            <cc:steps>
+                <cc:eval id="Eval">
+                    <cc:expression>props['score'] = parts[0].xpath('tier')</cc:expression>
+                    <cc:expression>props['candidate_id'] = parts[0].xpath('candidate_id')</cc:expression>
+                    <cc:expression>props['reason'] = parts[0].xpath('reason')</cc:expression>
+                </cc:eval>
+            </cc:steps>
+        </cc:async-mediation>
+        <cc:route id="Route">
+            <cc:mvel-strategy>
+                <cc:choose-route expression="props['score'] == 'HIGH'" route="High"/>
+                <cc:choose-route expression="false" route="Low"/>
+            </cc:mvel-strategy>
+            <cc:sub-route name="High" routes-to="AsyncMediation6"/>
+            <cc:sub-route name="Low" routes-to="AsyncMediation7"/>
+        </cc:route>
+        <cc:async-mediation id="AsyncMediation6" routes-to="MoveCandidateWWS">
+            <cc:steps>
+                <cc:write id="Write">
+                    <cc:message>
+                        <cc:text>&lt;bsvc:Move_Candidate_Request xmlns:bsvc="urn:com.workday/bsvc" bsvc:version="v47.0"&gt;
+    &lt;bsvc:Move_Candidate_Data&gt;
+        &lt;bsvc:Candidate_Criteria_Data&gt;
+            &lt;bsvc:Candidate_Reference&gt;
+                &lt;bsvc:ID bsvc:type="Candidate_ID"&gt;@{props['candidate_id'] }&lt;/bsvc:ID&gt;
+            &lt;/bsvc:Candidate_Reference&gt;
+            &lt;bsvc:Requisition_Reference&gt;
+                &lt;bsvc:ID bsvc:type="Job_Requisition_ID"&gt;@{props['job_req_id']}&lt;/bsvc:ID&gt;
+            &lt;/bsvc:Requisition_Reference&gt;
+        &lt;/bsvc:Candidate_Criteria_Data&gt;
+    &lt;/bsvc:Move_Candidate_Data&gt;
+&lt;/bsvc:Move_Candidate_Request&gt;</cc:text>
+                    </cc:message>
+                </cc:write>
+            </cc:steps>
+        </cc:async-mediation>
+        <cc:async-mediation id="AsyncMediation7">
+            <cc:steps>
+                <cc:cloud-log header="Candidate was scored Low. Please Review." id="CloudLog" level="warning" message="Reason : @{props['reason']}&#10;Score: @{props['score']}" reference-id="props['candidate_id']"/>
+            </cc:steps>
+        </cc:async-mediation>
+        <cc:workday-out-soap application="Recruiting" id="MoveCandidateWWS" routes-response-to="AsyncMediation8" version="v47.0"/>
+        <cc:async-mediation id="AsyncMediation8">
+            <cc:steps>
+                <cc:cloud-log header="Candidate was scored High. Moved to Next Stage." id="CloudLog" message="Reason : @{props['reason']}&#10;Score: @{props['score']}" reference-id="props['candidate_id']"/>
+            </cc:steps>
+        </cc:async-mediation>
+        <cc:local-in id="GetJobReqIn" routes-to="AsyncMediation1"/>
+        <cc:local-out endpoint="vm://INT_Applicant_AI_Scorer/GetJobReqIn" id="GetJobReqOut" routes-response-to="MoveCandidateOut" store-message="none"/>
+        <cc:local-out endpoint="vm://INT_Applicant_AI_Scorer/MoveCandidateAI" id="MoveCandidateOut" routes-response-to="AsyncMediation30" store-message="none"/>
+        <cc:async-mediation id="AsyncMediation30" routes-to="PutIntegrationMessage0">
+            <cc:steps>
+                <cc:store id="Store" input="variable" input-variable="cloud-log-content" title="log.html"/>
+            </cc:steps>
+        </cc:async-mediation>
+        <cc:local-out endpoint="vm://wcc/PutIntegrationMessage" id="PutIntegrationMessage0">
+            <cc:set name="is.message.severity" value="'INFO'"/>
+            <cc:set name="is.message.summary" value="&quot;Completed Integration&quot;"/>
+        </cc:local-out>
+	</cc:assembly>
+
+</beans>
