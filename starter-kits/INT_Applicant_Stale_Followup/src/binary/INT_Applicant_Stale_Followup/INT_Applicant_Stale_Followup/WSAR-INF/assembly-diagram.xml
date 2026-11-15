@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<wdnm:Diagram xmlns:wdnm="http://workday.com/studio/editors/notation">
+  <element href="assembly.xml#WorkdayAssembly"/>
+  <visualProperties x="150" y="126">
+    <element href="assembly.xml#//@beans/@mixed.1/@mixed.1"/>
+  </visualProperties>
+  <visualProperties x="455" y="126">
+    <element href="assembly.xml#Note-Error"/>
+  </visualProperties>
+  <visualProperties x="118" y="300">
+    <element href="assembly.xml#StartHere"/>
+  </visualProperties>
+  <visualProperties x="221" y="338">
+    <element href="assembly.xml#AsyncMediation"/>
+  </visualProperties>
+  <visualProperties x="51" y="457">
+    <element href="assembly.xml#AsyncMediation0"/>
+  </visualProperties>
+  <visualProperties x="183" y="507">
+    <element href="assembly.xml#Get_Job_RequisitionsWWS"/>
+  </visualProperties>
+  <visualProperties x="341" y="531">
+    <element href="assembly.xml#AsyncMediation1"/>
+  </visualProperties>
+  <visualProperties x="526" y="518">
+    <element href="assembly.xml#Splitter"/>
+  </visualProperties>
+  <visualProperties x="643" y="532">
+    <element href="assembly.xml#AsyncMediation2"/>
+  </visualProperties>
+  <visualProperties x="788" y="601">
+    <element href="assembly.xml#Get_CandidatesWWS"/>
+  </visualProperties>
+  <visualProperties x="932" y="572">
+    <element href="assembly.xml#Splitter0"/>
+  </visualProperties>
+  <visualProperties x="1070" y="623">
+    <element href="assembly.xml#AsyncMediation3"/>
+  </visualProperties>
+  <visualProperties x="1246" y="566">
+    <element href="assembly.xml#Move_CandidateWWS"/>
+  </visualProperties>
+  <visualProperties x="1351" y="550">
+    <element href="assembly.xml#AsyncMediation4"/>
+  </visualProperties>
+  <visualProperties x="49" y="481">
+    <element href="assembly.xml#CloseJobReqIn"/>
+  </visualProperties>
+  <visualProperties x="291" y="383">
+    <element href="assembly.xml#CloseJobReqOut"/>
+  </visualProperties>
+  <visualProperties x="441" y="349">
+    <element href="assembly.xml#AsyncMediation5"/>
+  </visualProperties>
+  <visualProperties x="594" y="380">
+    <element href="assembly.xml#PutIntegrationMessage"/>
+  </visualProperties>
+  <visualProperties x="261" y="636">
+    <element href="assembly.xml#AsyncMediation6"/>
+  </visualProperties>
+  <visualProperties x="868" y="625">
+    <element href="assembly.xml#AsyncMediation7"/>
+  </visualProperties>
+  <visualProperties x="1364" y="599">
+    <element href="assembly.xml#AsyncMediation8"/>
+  </visualProperties>
+  <connections type="routesTo" sourceAnchorX="0.9669421487603306" sourceAnchorY="0.43243243243243246" targetAnchorX="0.06060606060606061" targetAnchorY="0.3783783783783784">
+    <source href="assembly.xml#//@beans/@mixed.1/@mixed.1"/>
+    <target href="assembly.xml#Note-Error"/>
+  </connections>
+  <connections type="routesTo" sourceAnchorX="0.7708333333333334" sourceAnchorY="1.0" targetAnchorX="0.29245283018867924" targetAnchorY="0.33695652173913043">
+    <source href="assembly.xml#StartHere"/>
+    <target href="assembly.xml#AsyncMediation"/>
+  </connections>
+  <connections type="routesTo" sourceAnchorX="1.0" sourceAnchorY="0.30434782608695654" targetAnchorX="0.15625" targetAnchorY="0.7297297297297297">
+    <source href="assembly.xml#AsyncMediation0"/>
+    <target href="assembly.xml#Get_Job_RequisitionsWWS"/>
+  </connections>
+  <connections type="routesResponseTo" sourceAnchorX="0.8816568047337278" sourceAnchorY="1.0" targetAnchorX="0.4144144144144144" targetAnchorY="0.42391304347826086">
+    <source href="assembly.xml#Get_Job_RequisitionsWWS"/>
+    <target href="assembly.xml#AsyncMediation1"/>
+  </connections>
+  <connections type="routesTo" sourceAnchorX="1.0" sourceAnchorY="0.32608695652173914" targetAnchorX="0.3118279569892473" targetAnchorY="0.14655172413793102">
+    <source href="assembly.xml#AsyncMediation1"/>
+    <target href="assembly.xml#Splitter"/>
+  </connections>
+  <connections type="routesTo" sourceAnchorX="0.7" sourceAnchorY="1.0" targetAnchorX="0.16216216216216217" targetAnchorY="0.5217391304347826">
+    <source href="assembly.xml#//@beans/@mixed.1/@mixed.15/@subRoute.0"/>
+    <target href="assembly.xml#AsyncMediation2"/>
+  </connections>
+  <connections type="routesTo" sourceAnchorX="1.0" sourceAnchorY="0.43478260869565216" targetAnchorX="0.15625" targetAnchorY="0.8648648648648649">
+    <source href="assembly.xml#AsyncMediation2"/>
+    <target href="assembly.xml#Get_CandidatesWWS"/>
+  </connections>
+  <connections type="routesResponseTo" sourceAnchorX="0.821917808219178" sourceAnchorY="1.0" targetAnchorX="0.45161290322580644" targetAnchorY="0.25862068965517243">
+    <source href="assembly.xml#Get_CandidatesWWS"/>
+    <target href="assembly.xml#Splitter0"/>
+  </connections>
+  <connections type="routesTo" sourceAnchorX="0.675" sourceAnchorY="1.0" targetAnchorX="0.3153153153153153" targetAnchorY="0.5434782608695652">
+    <source href="assembly.xml#//@beans/@mixed.1/@mixed.21/@subRoute.0"/>
+    <target href="assembly.xml#AsyncMediation3"/>
+  </connections>
+  <connections type="routesTo" sourceAnchorX="1.0" sourceAnchorY="0.22826086956521738" targetAnchorX="0.328125" targetAnchorY="0.2702702702702703">
+    <source href="assembly.xml#AsyncMediation3"/>
+    <target href="assembly.xml#Move_CandidateWWS"/>
+  </connections>
+  <connections type="routesResponseTo" sourceAnchorX="0.7315436241610739" sourceAnchorY="1.0" targetAnchorX="0.2882882882882883" targetAnchorY="0.2391304347826087">
+    <source href="assembly.xml#Move_CandidateWWS"/>
+    <target href="assembly.xml#AsyncMediation4"/>
+  </connections>
+  <connections type="routesTo" sourceAnchorX="1.0" sourceAnchorY="0.7567567567567568" targetAnchorX="0.36936936936936937" targetAnchorY="0.30434782608695654">
+    <source href="assembly.xml#CloseJobReqIn"/>
+    <target href="assembly.xml#AsyncMediation0"/>
+  </connections>
+  <connections type="routesTo" sourceAnchorX="1.0" sourceAnchorY="0.3804347826086957" targetAnchorX="0.3" targetAnchorY="0.4864864864864865">
+    <source href="assembly.xml#AsyncMediation"/>
+    <target href="assembly.xml#CloseJobReqOut"/>
+  </connections>
+  <connections type="routesResponseTo" sourceAnchorX="0.7857142857142857" sourceAnchorY="1.0" targetAnchorX="0.42342342342342343" targetAnchorY="0.40217391304347827">
+    <source href="assembly.xml#CloseJobReqOut"/>
+    <target href="assembly.xml#AsyncMediation5"/>
+  </connections>
+  <connections type="routesTo" sourceAnchorX="1.0" sourceAnchorY="0.2608695652173913" targetAnchorX="0.12" targetAnchorY="0.6486486486486487">
+    <source href="assembly.xml#AsyncMediation5"/>
+    <target href="assembly.xml#PutIntegrationMessage"/>
+  </connections>
+  <connections type="routesTo" sourceAnchorX="0.7211538461538461" sourceAnchorY="1.0" targetAnchorX="0.6306306306306306" targetAnchorY="0.20652173913043478">
+    <source href="assembly.xml#//@beans/@mixed.1/@mixed.9/@mixed.3"/>
+    <target href="assembly.xml#AsyncMediation6"/>
+  </connections>
+  <connections type="routesTo" sourceAnchorX="0.6" sourceAnchorY="1.0" targetAnchorX="0.5585585585585585" targetAnchorY="0.34782608695652173">
+    <source href="assembly.xml#//@beans/@mixed.1/@mixed.17/@mixed.3"/>
+    <target href="assembly.xml#AsyncMediation7"/>
+  </connections>
+  <connections type="routesTo" sourceAnchorX="0.391304347826087" sourceAnchorY="1.0" targetAnchorX="0.40540540540540543" targetAnchorY="0.358695652173913">
+    <source href="assembly.xml#//@beans/@mixed.1/@mixed.23/@mixed.3"/>
+    <target href="assembly.xml#AsyncMediation8"/>
+  </connections>
+  <swimlanes x="31" y="50" bgColor="3161087" name="Global Error">
+    <elements href="assembly.xml#//@beans/@mixed.1/@mixed.1"/>
+    <elements href="assembly.xml#Note-Error"/>
+  </swimlanes>
+  <swimlanes x="31" y="185" name="Main">
+    <elements href="assembly.xml#StartHere"/>
+    <elements href="assembly.xml#AsyncMediation"/>
+    <elements href="assembly.xml#CloseJobReqOut"/>
+    <elements href="assembly.xml#AsyncMediation5"/>
+    <elements href="assembly.xml#PutIntegrationMessage"/>
+  </swimlanes>
+  <swimlanes x="31" y="357" name="Closed/Filled Job Req Swimlane">
+    <elements href="assembly.xml#CloseJobReqIn"/>
+    <elements href="#//@swimlanes.3"/>
+    <elements href="assembly.xml#Get_Job_RequisitionsWWS"/>
+    <elements href="assembly.xml#AsyncMediation1"/>
+    <elements href="assembly.xml#Splitter"/>
+    <elements href="#//@swimlanes.4"/>
+    <elements href="assembly.xml#Get_CandidatesWWS"/>
+    <elements href="assembly.xml#Splitter0"/>
+    <elements href="#//@swimlanes.5"/>
+    <elements href="assembly.xml#Move_CandidateWWS"/>
+    <elements href="assembly.xml#AsyncMediation4"/>
+  </swimlanes>
+  <swimlanes x="187" y="520" name="Format Get Job Req WWS" orientation="VERTICAL">
+    <elements href="assembly.xml#AsyncMediation0"/>
+    <elements href="assembly.xml#AsyncMediation6"/>
+  </swimlanes>
+  <swimlanes x="853" y="595" name="Format Get Candidate WWS" orientation="VERTICAL">
+    <elements href="assembly.xml#AsyncMediation2"/>
+    <elements href="assembly.xml#AsyncMediation7"/>
+  </swimlanes>
+  <swimlanes x="1327" y="617" name="Format Move Cadidate WWS" orientation="VERTICAL">
+    <elements href="assembly.xml#AsyncMediation3"/>
+    <elements href="assembly.xml#AsyncMediation8"/>
+  </swimlanes>
+</wdnm:Diagram>

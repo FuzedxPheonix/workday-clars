@@ -79,6 +79,7 @@ Every tagged version is listed under **Releases** on the right side of the repo 
 | `INT_Validate_Mode_Demo.clar` | Demonstrates toggling Workday's validate-only submission mode via a launch parameter, using a static Submit_Accounting_Journal_Request test payload | 2026 |
 | `INT_EOI_File_Outbound.clar` | EOI outbound file integration — extracts pending EOI elections from Workday and writes a pipe-delimited flat file for carrier delivery | 2026 |
 | `INT_Studio_Payroll_PayGroup_Routing.clar` | Pay group lookup and SFTP file routing -- routes External Pay Group response to carrier-specific SFTP paths based on pay group value | 2026 |
+| `INT_Applicant_Stale_Followup.clar` | Moves stale candidates in closed/filled job reqs to closed them out | 2026 |
 ---
 
 ## Aladtec Time-Off Integration (Starter Kit)
@@ -2140,6 +2141,78 @@ The user message combines the `prompt` launch parameter with the full `Get_Job_R
 - For large tenants with high applicant volume, monitor response time; pagination is not implemented in this version
 - To add filters (by requisition, status, or date), add launch parameters and populate `Request_Criteria` in the Write step
  
+
+
+---
+# INT_Applicant_Stale_Followup
+ 
+This starter kit automatically dispositions candidates on closed or filled job requisitions. It eliminates manual recruiter cleanup by looping all closed/filled reqs, pulling every active candidate on each, and moving them to a configured disposition stage via Move_Candidate. These are **not production-ready solutions** — they are starter kits to help you understand patterns and accelerate your own builds.
+ 
+---
+ 
+## What's Included
+ 
+- Get_Job_Requisitions filtered by Closed and Filled status via two Job_Requisition_Status_Reference elements
+- Outer splitter pattern on `//bsvc:Job_Requisition` to iterate per req
+- Get_Candidates filtered by Job_Requisition_Reference per req iteration
+- Inner splitter pattern on `//bsvc:Candidate` to iterate per candidate
+- Move_Candidate via Disposition_Step_Reference to route each candidate to the configured stage
+- Three integration attributes for disposition stage ID, closed status ID, and filled status ID
+- Cloud log INFO entry per moved candidate with name, ID, req title, req ID, and stage
+- Error handling on Get Job Req, Get Candidates, and Move Candidate steps
+- Global error handler with CRITICAL severity
+- Audit log stored as `log.html` at integration completion
+## What's NOT Included (still needed for production)
+ 
+- Pagination — `Count=999` per WWS call. If any single req has more than 999 candidates, add Response_Filter + Page loop logic
+- Stage filtering — integration moves ALL candidates on closed/filled reqs regardless of their current recruiting stage. Add a `cc:validate-exp` check on `props['recruiting_stage']` before the Move_Candidate step if you want to skip candidates already in a terminal stage
+- Duplicate run protection — no check for candidates already dispositioned on a prior run. If the integration runs more than once, Move_Candidate will fire again for the same candidates
+- Notifications — no candidate or recruiter notification is triggered. If your tenant requires a notification on disposition, wire a downstream step or configure it on the business process
+- Retry logic on failed Move_Candidate calls
+## Integration System Attributes
+ 
+| Attribute Map | Attribute | Type | Description |
+|---|---|---|---|
+| config | disposition_stage_id | Text | Recruiting_Stage_ID of the stage to move candidates to. Verify in Maintain Recruiting Stages in your tenant. |
+| config | closed_id | Text | Job_Requisition_Status_ID value for Closed reqs. Confirm exact ID in your tenant. |
+| config | filled_id | Text | Job_Requisition_Status_ID value for Filled reqs. Confirm exact ID in your tenant. |
+ 
+## Flow Overview
+ 
+```
+Start → AsyncMediation (load attributes into props)
+     → CloseJobReqOut/In (local-out / local-in wrapper)
+     → AsyncMediation0 (build Get_Job_Requisitions request)
+     → Get_Job_RequisitionsWWS (Recruiting v47.0)
+     → AsyncMediation1 (copy response)
+     → Splitter outer (//bsvc:Job_Requisition) → per req:
+     → AsyncMediation2 (extract req_id + req_title, build Get_Candidates request)
+     → Get_CandidatesWWS (Recruiting v47.0)
+     → Splitter0 inner (//bsvc:Candidate) → per candidate:
+     → AsyncMediation3 (extract candidate_id + candidate_name, build Move_Candidate request)
+     → Move_CandidateWWS (Recruiting v47.0)
+     → AsyncMediation4 (cloud-log INFO moved candidate)
+     → AsyncMediation5 (store log.html)
+     → PutIntegrationMessage (Integration Completed)
+```
+ 
+## Error Handling
+ 
+| Scenario | Severity | Behaviour |
+|---|---|---|
+| Get Job Req request build fails | ERROR | Routes to AsyncMediation6, logs context.errorMessage |
+| Get Candidates request build fails | ERROR | Routes to AsyncMediation7, logs context.errorMessage |
+| Move Candidate request build fails | ERROR | Routes to AsyncMediation8, logs context.errorMessage |
+| Unexpected failure | CRITICAL | Global handler, PutIntegrationMessage |
+ 
+## Deployment Notes
+ 
+- Confirm `closed_id` and `filled_id` against **Maintain Job Requisition Statuses** in tenant before go-live
+- Confirm `disposition_stage_id` against **Maintain Recruiting Stages** in tenant
+- Run in sandbox first — Move_Candidate triggers business process events and cannot be easily reversed
+- Assembly version: 2026.24 — WWS version: Recruiting v47.0
+ 
+
 
 
 ---
